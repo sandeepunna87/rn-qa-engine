@@ -16,6 +16,7 @@ import {
 } from './generate/prompts';
 import { RunRecord, renderReport } from './report/html';
 import { runCoverage, summariseAll, branchPct } from './signal/coverage';
+import { parseLcovShards, resolveLcovPaths } from './signal/lcov';
 import { fetchSonarIssues, groupIssuesByPath } from './signal/sonar';
 import { selectExecutable, triage } from './triage';
 import { Baseline, captureBaseline, captureJestBaseline, captureTscBaseline } from './verify/baseline';
@@ -32,11 +33,25 @@ async function collectSignals(
 ): Promise<{ coverage: Map<string, FileCoverage>; issues: SonarIssue[] }> {
   let coverage = new Map<string, FileCoverage>();
   if (!opts.skipCoverage) {
-    log('▸ running jest --coverage (baseline)…');
-    coverage = summariseAll(
-      runCoverage(config, { outDir: path.join(config.projectRoot, '.rnqa', 'coverage-base'), silent: true })
-    );
-    log(`  ${coverage.size} file(s) instrumented`);
+    if (config.coverage.source === 'lcov') {
+      const spec = config.coverage.lcovPath;
+      if (!spec) throw new Error('coverage.source is "lcov" but coverage.lcovPath is not set.');
+      const paths = resolveLcovPaths(config.projectRoot, spec);
+      if (paths.length === 0) {
+        throw new Error(
+          `No lcov file found for "${spec}". Run your normal sharded test job first, then point coverage.lcovPath at the merged lcov.info.`
+        );
+      }
+      log(`▸ reading coverage from ${paths.length} lcov file(s) — no jest run needed`);
+      coverage = parseLcovShards(paths, config.projectRoot);
+      log(`  ${coverage.size} file(s) in the report`);
+    } else {
+      log('▸ running jest --coverage (baseline)…');
+      coverage = summariseAll(
+        runCoverage(config, { outDir: path.join(config.projectRoot, '.rnqa', 'coverage-base'), silent: true })
+      );
+      log(`  ${coverage.size} file(s) instrumented`);
+    }
   }
 
   let issues: SonarIssue[] = [];
@@ -328,6 +343,16 @@ program
     // coverage
     let covOk = false;
     let covDetail = '';
+    if (config.coverage.source === 'lcov') {
+      const paths = config.coverage.lcovPath
+        ? resolveLcovPaths(root, config.coverage.lcovPath)
+        : [];
+      covOk = paths.length > 0;
+      covDetail = covOk
+        ? `lcov source: ${paths.length} file(s) found — no jest coverage run needed`
+        : `coverage.source is "lcov" but nothing matched "${config.coverage.lcovPath ?? '(unset)'}" — run your sharded test job first`;
+      add('coverage report', covOk, covDetail);
+    } else {
     try {
       const raw = runCoverage(config, {
         outDir: path.join(root, '.rnqa', 'doctor-coverage'),
@@ -341,6 +366,7 @@ program
       covDetail = (err as Error).message;
     }
     add('coverage report', covOk, covDetail);
+    }
 
     // Stryker — the gate the engine's credibility rests on
     const strykerCore = fs.existsSync(

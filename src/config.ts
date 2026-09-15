@@ -22,6 +22,11 @@ export const DEFAULT_CONFIG: EngineConfig = {
     '**/*.stories.tsx',
   ],
   testGlob: '__tests__',
+  // Default to running jest. Repos that already shard and emit lcov for Sonar
+  // should switch to 'lcov' — re-running an unsharded full suite just to rank
+  // files is the most expensive thing the engine can do, and pointless when
+  // the answer already exists.
+  coverage: { source: 'jest', lcovPath: null },
   // maxWorkers=2 is deliberate: jest defaults to cpus-1 workers, and on a 16GB
   // machine a large React Native repo will exhaust memory before it finishes.
   jest: { command: 'npx jest', configPath: null, maxWorkers: '2' },

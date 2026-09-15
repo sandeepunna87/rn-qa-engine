@@ -49,7 +49,30 @@ export async function verify(
   const gates: VerifyGate[] = [];
   const sandbox = Sandbox.create(config.projectRoot, task.id);
   const targetRel = path.relative(config.projectRoot, task.targetPath);
-  const before = coverageBefore.get(task.targetPath) ?? null;
+
+  // When the baseline came from an lcov file produced by a sharded CI run, its
+  // numbers are not methodologically identical to an istanbul run (lcov has no
+  // statement map, and branch arms are counted differently). Comparing the two
+  // would produce a meaningless delta, so measure the "before" here, in the
+  // still-pristine sandbox, scoped to just this file — cheap, and apples to
+  // apples with the "after" measurement below.
+  let before = coverageBefore.get(task.targetPath) ?? null;
+  if (task.kind === 'test-generation' && config.coverage.source === 'lcov') {
+    try {
+      const pristine = summariseAll(
+        runCoverage(config, {
+          cwd: sandbox.root,
+          outDir: path.join(sandbox.root, '.rnqa', 'coverage-pristine'),
+          silent: true,
+          collectCoverageFrom: [targetRel],
+          findRelatedTests: [targetRel],
+        })
+      );
+      before = pristine.get(path.join(sandbox.root, targetRel)) ?? before;
+    } catch {
+      /* fall back to the lcov numbers and accept the looser comparison */
+    }
+  }
 
   const fail = (feedback: string): { result: VerifyResult; sandbox: Sandbox } => ({
     result: {
@@ -198,6 +221,8 @@ export async function verify(
       cwd: sandbox.root,
       outDir: path.join(sandbox.root, '.rnqa', 'coverage-after'),
       silent: true,
+      collectCoverageFrom: [targetRel],
+      findRelatedTests: [targetRel],
     });
     const afterMap = summariseAll(rawAfter);
     coverageAfter = afterMap.get(path.join(sandbox.root, targetRel)) ?? null;

@@ -126,6 +126,16 @@ export interface EngineConfig {
   include: string[];
   exclude: string[];
   testGlob: string;
+  /**
+   * Where the baseline coverage signal comes from.
+   *  'jest' — the engine runs `jest --coverage` itself (small repos)
+   *  'lcov' — read an lcov.info your CI already produced (sharded/large repos)
+   */
+  coverage: {
+    source: 'jest' | 'lcov';
+    /** Path(s) to lcov.info. Comma-separated, and "dir/*\/lcov.info" is expanded. */
+    lcovPath: string | null;
+  };
   jest: {
     command: string;
     configPath: string | null;

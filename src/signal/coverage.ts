@@ -26,9 +26,16 @@ interface IstanbulFileEntry {
  */
 export function runCoverage(
   config: EngineConfig,
-  opts: { cwd?: string; outDir: string; testPathPattern?: string; silent?: boolean } = {
-    outDir: '',
-  }
+  opts: {
+    cwd?: string;
+    outDir: string;
+    testPathPattern?: string;
+    silent?: boolean;
+    /** Restrict instrumentation to these globs — makes a scoped run cheap. */
+    collectCoverageFrom?: string[];
+    /** Run only the tests related to these files. */
+    findRelatedTests?: string[];
+  } = { outDir: '' }
 ): Record<string, IstanbulFileEntry> {
   const cwd = opts.cwd ?? config.projectRoot;
   const outDir = opts.outDir || path.join(cwd, '.rnqa', 'coverage');
@@ -46,6 +53,9 @@ export function runCoverage(
   ];
   if (config.jest.configPath) args.push(`--config=${config.jest.configPath}`);
   if (config.jest.maxWorkers) args.push(`--maxWorkers=${config.jest.maxWorkers}`);
+  for (const g of opts.collectCoverageFrom ?? []) args.push(`--collectCoverageFrom=${g}`);
+  // --findRelatedTests takes the paths as positional args and must come last.
+  if (opts.findRelatedTests?.length) args.push('--findRelatedTests', ...opts.findRelatedTests);
   if (opts.testPathPattern) args.push(`--testPathPattern=${opts.testPathPattern}`);
 
   try {

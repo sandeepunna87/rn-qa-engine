@@ -176,3 +176,59 @@ Each sandbox is a git worktree with `node_modules` symlinked, not copied, so a
 run costs megabytes rather than gigabytes. 500GB is not a constraint. Worktrees
 are removed after each task; if a run is killed mid-task, `git worktree prune`
 in the app repo cleans up strays.
+
+---
+
+## If your CI already shards jest and produces lcov
+
+A repo large enough to split its test run into shards cannot afford the engine
+doing a second, single-process `jest --coverage` over everything just to rank
+files. That run is the most expensive thing the engine does, and the answer
+already exists in the lcov you upload to SonarQube.
+
+```json
+"coverage": {
+  "source": "lcov",
+  "lcovPath": "coverage/lcov.info"
+}
+```
+
+Already-merged lcov (the usual case, since Sonar wants one file):
+
+```json
+"lcovPath": "coverage/lcov.info"
+```
+
+Per-shard files, not yet merged — comma-separated, or a single `*` pattern:
+
+```json
+"lcovPath": "coverage/shard-*/lcov.info"
+```
+
+Shards are merged by the engine on the rule that a line or branch arm covered in
+**any** shard is covered overall.
+
+### What lcov gives up, and why it does not matter here
+
+lcov carries uncovered lines (`DA`), uncovered branch **arms** (`BRDA`) and
+never-invoked functions (`FN`/`FNDA`) — everything triage ranks on. It has no
+istanbul statement map, so `statements` is approximated by line coverage. Triage
+ranks on branches, so the ordering is unaffected. Measured against the same
+fixture, the lcov and jest paths produce identical branch numbers (37%, 11/30,
+19 untested arms) and differ only on statements (52% vs 50%).
+
+### The coverage-delta gate stays rigorous
+
+lcov and istanbul count differently, so comparing an lcov "before" against an
+istanbul "after" would produce a meaningless delta. When `source` is `lcov`, the
+engine measures the "before" itself inside the still-pristine sandbox, scoped to
+the single file under test with `--collectCoverageFrom` and `--findRelatedTests`.
+Both sides of the delta then come from the same instrument. That scoped run is
+cheap — it is one file and its related tests, not your suite.
+
+### Files missing from the report
+
+A file that no test imports does not appear in the coverage report at all. The
+engine treats a missing entry as **0% covered, ranked highest** — not as 100%
+covered. On a large repo these are usually the most valuable targets and the
+easiest to overlook, because no coverage dashboard shows them as a problem.

@@ -115,8 +115,13 @@ export function triage(input: TriageInput): Task[] {
       continue; // Unparseable file — skip rather than feed garbage to the model.
     }
 
-    const bPct = branchPct(cov);
-    const sPct = statementPct(cov);
+    // A file absent from the coverage report was never loaded by ANY test.
+    // branchPct(null) returns 100 as a neutral default for reporting, but for
+    // ranking that is exactly backwards: no coverage entry means 0% covered,
+    // and an entirely untested file is the highest-value target, not the lowest.
+    const neverTested = cov === null;
+    const bPct = neverTested ? 0 : branchPct(cov);
+    const sPct = neverTested ? 0 : statementPct(cov);
     const maxComplexity = Math.max(0, ...Object.values(facts.complexityByExport));
     const churnCount = churn.get(abs) ?? 0;
 
@@ -130,8 +135,12 @@ export function triage(input: TriageInput): Task[] {
 
       const { tier, reason } = assignTier(config, 'test-generation', abs, issues);
       const rationale = [
-        `Branch coverage ${bPct.toFixed(0)}% (${cov?.branches.covered ?? 0}/${cov?.branches.total ?? 0}), statements ${sPct.toFixed(0)}%.`,
-        `${uncoveredBranches} untested branch arm(s); ${cov?.uncoveredFunctions.length ?? 0} never-invoked function(s).`,
+        neverTested
+          ? 'NOT PRESENT in the coverage report — no test loads this file at all.'
+          : `Branch coverage ${bPct.toFixed(0)}% (${cov.branches.covered}/${cov.branches.total}), statements ${sPct.toFixed(0)}%.`,
+        neverTested
+          ? `${facts.exports.length} exported symbol(s), none exercised.`
+          : `${uncoveredBranches} untested branch arm(s); ${cov.uncoveredFunctions.length} never-invoked function(s).`,
         `Peak cognitive complexity ${maxComplexity}.`,
         churnCount > 0 ? `Changed in ${churnCount} commit(s) in the last 90 days.` : 'No recent churn.',
         reason,
