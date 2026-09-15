@@ -50,21 +50,28 @@ export const DEFAULT_CONFIG: EngineConfig = {
     ],
   },
   // Any file whose path matches these is Tier C: the engine reports, never edits.
+  // Domain-neutral defaults covering the places where a plausible-looking wrong
+  // fix is expensive in any application. Replace with your repo's real folder
+  // names before the first run -- substring matching only works if it matches.
   sensitivePathPatterns: [
     'auth',
     'login',
     'session',
     'token',
     'credential',
+    'password',
+    'secret',
     'crypto',
     'encrypt',
     'keychain',
+    'keystore',
     'biometric',
+    'permission',
+    'admin',
+    'billing',
     'payment',
-    'upi',
-    'card',
-    'pin',
     'otp',
+    'mfa',
   ],
   provider: {
     kind: 'ollama',

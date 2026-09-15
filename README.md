@@ -1,8 +1,13 @@
 # rn-qa-engine
 
-A self-hosted engine that analyses a React Native + TypeScript repo, generates
-Jest/RNTL tests and SonarQube fixes with an LLM, and **verifies every generation
+A self-hosted engine that analyses a TypeScript or JavaScript repo, generates
+Jest tests and SonarQube fixes with an LLM, and **verifies every generation
 against objective gates before a human ever sees it.**
+
+Stack-agnostic by design: it shells out to *your* jest, so it inherits your
+transforms, module resolution and setup files. React Native is a first-class
+case — native-module mocking and RNTL conventions are built in — but nothing in
+the engine assumes it, and nothing assumes an application domain.
 
 The LLM is a replaceable component. The engine is the verification loop.
 
@@ -14,7 +19,7 @@ An LLM pointed at a codebase will produce tests that look right, raise the
 coverage number, and assert nothing:
 
 ```ts
-expect(render(<TransferScreen />)).toBeTruthy();
+expect(evaluateQuota(request, true)).toBeTruthy();
 ```
 
 That output is worse than no tests. It lifts the Sonar coverage gate to green
@@ -29,8 +34,10 @@ Measured on the bundled fixture (`fixtures/demo-app`), against the same source f
 
 | Candidate test file | Branch coverage | Mutation score | Verdict |
 |---|---|---|---|
-| Coverage theatre (`toBeTruthy` only) | 37% → **97%** | **22%** | **REJECTED** |
-| Real assertions | 37% → **100%** | **96%** | **ACCEPTED** |
+| Coverage theatre (`toBeTruthy` only) | 37% → **100%** | **22%** | **REJECTED** |
+| Real assertions | 37% → **100%** | **93%** | **ACCEPTED** |
+
+Both reach the same branch coverage. Only one of them tests anything.
 
 Coverage cannot tell those apart. Mutation score can. That is the whole thesis.
 
@@ -146,7 +153,7 @@ rnqa analyse --project /path/to/rn-app
 ```
 
 ```
-1. [B] test:src/services/TransferValidator.ts   score 209
+1. [B] test:src/services/QuotaPolicy.ts   score 209
      · Branch coverage 37% (11/30), statements 50%.
      · 19 untested branch arm(s); 1 never-invoked function(s).
      · Peak cognitive complexity 30.
@@ -160,7 +167,7 @@ Audit test files — yours or anyone's — with no model involved:
 
 ```bash
 rnqa verify-file --project /path/to/rn-app \
-  --target src/services/TransferValidator.ts \
+  --target src/services/QuotaPolicy.ts \
   --test candidates/real.test.ts --as src/services/__tests__/X.test.ts \
   --report rnqa-report.html
 ```
@@ -186,7 +193,7 @@ rnqa run --project /path/to/rn-app --apply     # writes accepted changes
     "projectKey": "mobile-app",
     "autoFixRules": ["typescript:S1128", "typescript:S1481", "typescript:S1440"]
   },
-  "sensitivePathPatterns": ["auth", "token", "keychain", "payment", "upi", "otp"],
+  "sensitivePathPatterns": ["auth", "token", "credential", "crypto", "payment"],
   "provider": {
     "kind": "ollama",
     "model": "qwen2.5-coder:32b",
@@ -221,10 +228,12 @@ answer is a one-line edit, not a rewrite.
 
 ## Deliberate limits
 
-**Tier C is not configurable away by the model.** Files under `auth/`, `crypto/`,
-`payment/` and anything Sonar types as a `VULNERABILITY` are filtered out before
+**Tier C is not configurable away by the model.** Files matching
+`sensitivePathPatterns` — authentication, credentials, cryptography, payments by
+default — and anything Sonar types as a `VULNERABILITY` are filtered out before
 the prompt is built. A plausible-looking wrong fix in that code costs more than
-the issue it closes.
+the issue it closes. Set the list to your repo's real folder names; substring
+matching only helps if it matches.
 
 **The engine never gates a release.** In CI it opens a PR and archives a report.
 Anything that can block a developer's build on generated output gets routed
@@ -274,4 +283,5 @@ rn-jest-setup.example.js  native module mocks for the target RN repo
 3. **Sonar Tier B** (complexity refactors) — only after devs already trust Tier A.
 4. **Checkmarx** — advisory output only, never auto-fix. Deliberately last: a high
    false-positive rate means auto-"fixing" writes pointless defensive code into a
-   banking app and burns credibility with AppSec in a single PR.
+   production application and burns credibility with your security team in a
+   single PR.

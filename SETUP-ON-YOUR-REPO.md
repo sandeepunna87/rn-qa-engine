@@ -36,7 +36,7 @@ coverage theatre — which is the entire argument for the project.
   "include": ["src/**/*.ts", "src/**/*.tsx"],
   "jest": { "command": "npx jest", "configPath": null },
   "sonar": { "enabled": false },
-  "sensitivePathPatterns": ["auth", "token", "keychain", "payment", "upi", "otp", "mpin"],
+  "sensitivePathPatterns": ["auth", "token", "credential", "secret", "crypto", "payment"],
   "provider": { "kind": "ollama", "model": "qwen2.5-coder:32b", "baseUrl": "http://127.0.0.1:11434" },
   "maxTasks": 3
 }
@@ -214,8 +214,7 @@ lcov carries uncovered lines (`DA`), uncovered branch **arms** (`BRDA`) and
 never-invoked functions (`FN`/`FNDA`) — everything triage ranks on. It has no
 istanbul statement map, so `statements` is approximated by line coverage. Triage
 ranks on branches, so the ordering is unaffected. Measured against the same
-fixture, the lcov and jest paths produce identical branch numbers (37%, 11/30,
-19 untested arms) and differ only on statements (52% vs 50%).
+fixture, the lcov and jest paths produce identical branch numbers (37%, 11/30, 19 untested arms) and differ only on statements (52% vs 50%).
 
 ### The coverage-delta gate stays rigorous
 

@@ -57,7 +57,7 @@ export async function mutationScore(
 
   // Resolve the LOCAL stryker binary. `npx stryker` will happily download an
   // unrelated package of that name from the registry when local resolution
-  // fails — in an air-gapped bank build that is both a failure and a surprise.
+  // fails — in an air-gapped build that is both a failure and a surprise.
   const strykerBin = [
     path.join(sandbox.root, 'node_modules', '@stryker-mutator', 'core', 'bin', 'stryker.js'),
     path.join(config.projectRoot, 'node_modules', '@stryker-mutator', 'core', 'bin', 'stryker.js'),

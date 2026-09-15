@@ -1,14 +1,36 @@
 {
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["**/*.test.tsx", "**/__mocks__/**", "**/*.stories.tsx"],
-  "jest": { "command": "npx jest", "configPath": null },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "exclude": [
+    "**/*.test.tsx",
+    "**/__mocks__/**",
+    "**/*.stories.tsx"
+  ],
+  "jest": {
+    "command": "npx jest",
+    "configPath": null,
+    "maxWorkers": "2"
+  },
   "sonar": {
     "enabled": false,
     "baseUrl": "https://REPLACE-ME",
     "projectKey": "REPLACE-ME",
-    "autoFixRules": ["typescript:S1128", "typescript:S1481", "typescript:S1440"]
+    "autoFixRules": [
+      "typescript:S1128",
+      "typescript:S1481",
+      "typescript:S1440"
+    ]
   },
-  "sensitivePathPatterns": ["REPLACE-WITH-YOUR-OWN-FOLDER-NAMES"],
+  "sensitivePathPatterns": [
+    "REPLACE-WITH-YOUR-OWN-FOLDER-NAMES",
+    "auth",
+    "token",
+    "credential",
+    "crypto",
+    "payment"
+  ],
   "provider": {
     "kind": "ollama",
     "model": "qwen2.5-coder:32b",
@@ -18,7 +40,13 @@
     "minMutationScore": 60,
     "minBranchCoverageDelta": 15,
     "maxAttempts": 3,
-    "enforceScope": true
+    "enforceScope": true,
+    "regressionScope": "related",
+    "strykerConcurrency": 2
   },
-  "maxTasks": 3
+  "maxTasks": 3,
+  "coverage": {
+    "source": "jest",
+    "lcovPath": null
+  }
 }

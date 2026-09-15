@@ -1,104 +1,102 @@
-import { validateTransfer, formatFee, TransferRequest } from '../TransferValidator';
+import { evaluateQuota, formatCredits, QuotaRequest } from '../QuotaPolicy';
 
-const base = (over: Partial<TransferRequest> = {}): TransferRequest => ({
-  amount: 1000,
-  currency: 'INR',
-  beneficiaryId: 'BEN-1',
-  channel: 'IMPS',
+const base = (over: Partial<QuotaRequest> = {}): QuotaRequest => ({
+  units: 100,
+  region: 'global',
+  accountId: 'ACC-1',
+  tier: 'free',
   ...over,
 });
 
-describe('validateTransfer', () => {
-  it('accepts a valid IMPS transfer and charges the IMPS fee', () => {
-    const r = validateTransfer(base(), true);
-    expect(r.ok).toBe(true);
-    expect(r.errors).toEqual([]);
-    expect(r.feeInPaise).toBe(500);
+describe('evaluateQuota', () => {
+  it('allows a valid free-tier request at no credit cost', () => {
+    const r = evaluateQuota(base(), true);
+    expect(r.allowed).toBe(true);
+    expect(r.reasons).toEqual([]);
+    expect(r.costInCredits).toBe(0);
   });
 
-  it('rejects a blank beneficiary', () => {
-    expect(validateTransfer(base({ beneficiaryId: '   ' }), true).errors).toContain(
-      'BENEFICIARY_REQUIRED'
+  it('rejects a blank account id', () => {
+    expect(evaluateQuota(base({ accountId: '   ' }), true).reasons).toContain('ACCOUNT_REQUIRED');
+  });
+
+  it('rejects non-positive units and skips the limit checks', () => {
+    const r = evaluateQuota(base({ units: 0 }), true);
+    expect(r.reasons).toContain('UNITS_INVALID');
+    expect(r.reasons).not.toContain('BELOW_MIN_FREE');
+  });
+
+  it('rejects units below the tier minimum', () => {
+    expect(evaluateQuota(base({ tier: 'enterprise', units: 999 }), true).reasons).toContain(
+      'BELOW_MIN_ENTERPRISE'
     );
   });
 
-  it('rejects a non-positive amount and skips limit checks', () => {
-    const r = validateTransfer(base({ amount: 0 }), true);
-    expect(r.errors).toContain('AMOUNT_INVALID');
-    expect(r.errors).not.toContain('BELOW_MIN_IMPS');
-  });
-
-  it('rejects an amount below the channel minimum', () => {
-    expect(validateTransfer(base({ channel: 'RTGS', amount: 199999 }), true).errors).toContain(
-      'BELOW_MIN_RTGS'
+  it('rejects units above the tier maximum', () => {
+    expect(evaluateQuota(base({ tier: 'trial', units: 101 }), true).reasons).toContain(
+      'ABOVE_MAX_TRIAL'
     );
   });
 
-  it('rejects an amount above the channel maximum', () => {
-    expect(validateTransfer(base({ channel: 'UPI', amount: 100001 }), true).errors).toContain(
-      'ABOVE_MAX_UPI'
-    );
+  it('allows a verified pro account to exceed its maximum for 25.00 credits', () => {
+    const r = evaluateQuota(base({ tier: 'pro', units: 50001 }), true);
+    expect(r.allowed).toBe(true);
+    expect(r.costInCredits).toBe(2500);
   });
 
-  it('allows a KYC-verified NEFT transfer over the max, for a 25.00 fee', () => {
-    const r = validateTransfer(base({ channel: 'NEFT', amount: 1000001 }), true);
-    expect(r.ok).toBe(true);
-    expect(r.feeInPaise).toBe(2500);
+  it('blocks an unverified pro account above its maximum', () => {
+    const r = evaluateQuota(base({ tier: 'pro', units: 50001 }), false);
+    expect(r.reasons).toContain('ABOVE_MAX_PRO');
+    expect(r.allowed).toBe(false);
   });
 
-  it('blocks an un-verified NEFT transfer over the max', () => {
-    const r = validateTransfer(base({ channel: 'NEFT', amount: 1000001 }), false);
-    expect(r.errors).toContain('ABOVE_MAX_NEFT');
-    expect(r.ok).toBe(false);
-  });
-
-  it('rejects non-INR on every channel except RTGS', () => {
-    expect(validateTransfer(base({ currency: 'USD' }), true).errors).toContain(
-      'CURRENCY_NOT_SUPPORTED'
+  it('rejects a restricted region on every tier except enterprise', () => {
+    expect(evaluateQuota(base({ region: 'restricted' }), true).reasons).toContain(
+      'REGION_NOT_SUPPORTED'
     );
     expect(
-      validateTransfer(base({ currency: 'USD', channel: 'RTGS', amount: 250000 }), true).errors
-    ).not.toContain('CURRENCY_NOT_SUPPORTED');
+      evaluateQuota(base({ region: 'restricted', tier: 'enterprise', units: 2000 }), true).reasons
+    ).not.toContain('REGION_NOT_SUPPORTED');
   });
 
-  it('requires KYC above 50000 and not at or below it', () => {
-    expect(validateTransfer(base({ amount: 50001 }), false).errors).toContain('KYC_REQUIRED');
-    expect(validateTransfer(base({ amount: 50000 }), false).errors).not.toContain('KYC_REQUIRED');
+  it('requires verification above 500 units and not at or below it', () => {
+    expect(evaluateQuota(base({ units: 501 }), false).reasons).toContain('VERIFICATION_REQUIRED');
+    expect(evaluateQuota(base({ units: 500 }), false).reasons).not.toContain('VERIFICATION_REQUIRED');
   });
 
   it('rejects an unparseable schedule', () => {
-    expect(validateTransfer(base({ scheduledAt: 'not-a-date' }), true).errors).toContain(
+    expect(evaluateQuota(base({ scheduledAt: 'not-a-date' }), true).reasons).toContain(
       'SCHEDULE_INVALID'
     );
   });
 
   it('rejects a schedule in the past but allows one in the future', () => {
-    expect(validateTransfer(base({ scheduledAt: '2001-01-01T00:00:00Z' }), true).errors).toContain(
+    expect(evaluateQuota(base({ scheduledAt: '2001-01-01T00:00:00Z' }), true).reasons).toContain(
       'SCHEDULE_IN_PAST'
     );
-    const future = validateTransfer(base({ scheduledAt: '2099-01-01T00:00:00Z' }), true);
-    expect(future.errors).not.toContain('SCHEDULE_IN_PAST');
-    expect(future.ok).toBe(true);
+    const future = evaluateQuota(base({ scheduledAt: '2099-01-01T00:00:00Z' }), true);
+    expect(future.reasons).not.toContain('SCHEDULE_IN_PAST');
+    expect(future.allowed).toBe(true);
   });
 
-  it('charges 50.00 for RTGS and nothing for UPI', () => {
-    expect(validateTransfer(base({ channel: 'RTGS', amount: 250000 }), true).feeInPaise).toBe(5000);
-    expect(validateTransfer(base({ channel: 'UPI' }), true).feeInPaise).toBe(0);
+  it('charges 50.00 credits for enterprise and nothing for trial', () => {
+    expect(evaluateQuota(base({ tier: 'enterprise', units: 2000 }), true).costInCredits).toBe(5000);
+    expect(evaluateQuota(base({ tier: 'trial' }), true).costInCredits).toBe(0);
   });
 
-  it('charges no fee when validation failed', () => {
-    expect(validateTransfer(base({ beneficiaryId: '' }), true).feeInPaise).toBe(0);
+  it('charges nothing when the request was rejected', () => {
+    expect(evaluateQuota(base({ accountId: '' }), true).costInCredits).toBe(0);
   });
 });
 
-describe('formatFee', () => {
-  it('renders zero as Free', () => {
-    expect(formatFee(0)).toBe('Free');
+describe('formatCredits', () => {
+  it('renders zero as Included', () => {
+    expect(formatCredits(0)).toBe('Included');
   });
 
-  it('renders paise as rupees to two decimals', () => {
-    expect(formatFee(500)).toBe('₹5.00');
-    expect(formatFee(2500)).toBe('₹25.00');
-    expect(formatFee(1)).toBe('₹0.01');
+  it('renders hundredths as credits to two decimals', () => {
+    expect(formatCredits(500)).toBe('5.00 credits');
+    expect(formatCredits(2500)).toBe('25.00 credits');
+    expect(formatCredits(1)).toBe('0.01 credits');
   });
 });

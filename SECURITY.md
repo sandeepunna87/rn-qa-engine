@@ -2,21 +2,22 @@
 
 ## Keep this repository private
 
-This engine is built around a specific bank's build pipeline. Several things in
-it are useful reconnaissance for anyone attacking the mobile app:
+Once you configure this engine for a real application, several things in it
+become useful reconnaissance for anyone attacking that application:
 
 - `sensitivePathPatterns` in your real `rnqa.config.json` is a map of where the
-  app keeps authentication, MPIN, OTP, UPI and payment code.
+  application keeps its authentication, credential and payment code.
 - The `Jenkinsfile` carries internal hostnames and credential IDs.
 - Generated reports embed source diffs.
 
 Nothing here is a vulnerability on its own. Together they shorten the path for
-someone who is looking. Use a private repository, and prefer the organisation's
-internal SCM over personal accounts.
+someone who is looking. Use a private repository for any fork carrying real
+configuration, and prefer your organisation's internal SCM over personal
+accounts.
 
 ## Never commit
 
-- `rnqa.config.json` with real internal hostnames — commit
+- `rnqa.config.json` with your real internal hostnames — commit
   `rnqa.config.example.json` instead and keep the real one untracked.
 - `SONAR_TOKEN`, LLM gateway keys, or any credential. These are read from the
   environment at load time, which is why `config.ts` resolves them there and not

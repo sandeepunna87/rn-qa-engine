@@ -1,44 +1,35 @@
-import { validateTransfer, formatFee } from '../TransferValidator';
+import { evaluateQuota, formatCredits } from '../QuotaPolicy';
 
 /**
  * COVERAGE THEATRE — the exact output an ungated LLM produces.
  * Drives nearly every branch, asserts essentially nothing.
- * Istanbul will report this as excellent. It catches zero bugs.
+ * Istanbul reports this as excellent. It catches zero bugs.
  */
-describe('validateTransfer (coverage theatre)', () => {
+describe('evaluateQuota (coverage theatre)', () => {
   it('handles many inputs', () => {
-    expect(validateTransfer({ amount: 0, currency: 'INR', beneficiaryId: 'B', channel: 'UPI' }, true)).toBeDefined();
-    expect(validateTransfer({ amount: 1000, currency: 'INR', beneficiaryId: '', channel: 'UPI' }, true)).toBeTruthy();
-    expect(validateTransfer({ amount: 999999999, currency: 'INR', beneficiaryId: 'B', channel: 'UPI' }, true)).toBeTruthy();
-    expect(validateTransfer({ amount: 2000000, currency: 'INR', beneficiaryId: 'B', channel: 'NEFT' }, true)).toBeTruthy();
-    expect(validateTransfer({ amount: 2000000, currency: 'INR', beneficiaryId: 'B', channel: 'NEFT' }, false)).toBeTruthy();
-    expect(validateTransfer({ amount: 100, currency: 'INR', beneficiaryId: 'B', channel: 'RTGS' }, true)).toBeTruthy();
-    expect(validateTransfer({ amount: 300000, currency: 'INR', beneficiaryId: 'B', channel: 'RTGS' }, true)).toBeTruthy();
-    expect(validateTransfer({ amount: 300000, currency: 'USD', beneficiaryId: 'B', channel: 'RTGS' }, true)).toBeTruthy();
-    expect(validateTransfer({ amount: 1000, currency: 'USD', beneficiaryId: 'B', channel: 'IMPS' }, true)).toBeTruthy();
-    expect(validateTransfer({ amount: 60000, currency: 'INR', beneficiaryId: 'B', channel: 'IMPS' }, false)).toBeTruthy();
+    expect(evaluateQuota({ units: 0, region: 'global', accountId: 'A', tier: 'free' }, true)).toBeDefined();
+    expect(evaluateQuota({ units: 100, region: 'global', accountId: '', tier: 'free' }, true)).toBeTruthy();
+    expect(evaluateQuota({ units: 999999999, region: 'global', accountId: 'A', tier: 'free' }, true)).toBeTruthy();
+    expect(evaluateQuota({ units: 60000, region: 'global', accountId: 'A', tier: 'pro' }, true)).toBeTruthy();
+    expect(evaluateQuota({ units: 60000, region: 'global', accountId: 'A', tier: 'pro' }, false)).toBeTruthy();
+    expect(evaluateQuota({ units: 100, region: 'global', accountId: 'A', tier: 'enterprise' }, true)).toBeTruthy();
+    expect(evaluateQuota({ units: 5000, region: 'global', accountId: 'A', tier: 'enterprise' }, true)).toBeTruthy();
+    expect(evaluateQuota({ units: 5000, region: 'restricted', accountId: 'A', tier: 'enterprise' }, true)).toBeTruthy();
+    expect(evaluateQuota({ units: 100, region: 'restricted', accountId: 'A', tier: 'trial' }, true)).toBeTruthy();
+    expect(evaluateQuota({ units: 600, region: 'global', accountId: 'A', tier: 'free' }, false)).toBeTruthy();
     expect(
-      validateTransfer(
-        { amount: 1000, currency: 'INR', beneficiaryId: 'B', channel: 'IMPS', scheduledAt: 'nonsense' },
-        true
-      )
+      evaluateQuota({ units: 100, region: 'global', accountId: 'A', tier: 'trial', scheduledAt: 'nonsense' }, true)
     ).toBeTruthy();
     expect(
-      validateTransfer(
-        { amount: 1000, currency: 'INR', beneficiaryId: 'B', channel: 'IMPS', scheduledAt: '2001-01-01T00:00:00Z' },
-        true
-      )
+      evaluateQuota({ units: 100, region: 'global', accountId: 'A', tier: 'trial', scheduledAt: '2001-01-01T00:00:00Z' }, true)
     ).toBeTruthy();
     expect(
-      validateTransfer(
-        { amount: 1000, currency: 'INR', beneficiaryId: 'B', channel: 'IMPS', scheduledAt: '2099-01-01T00:00:00Z' },
-        true
-      )
+      evaluateQuota({ units: 100, region: 'global', accountId: 'A', tier: 'trial', scheduledAt: '2099-01-01T00:00:00Z' }, true)
     ).toBeTruthy();
   });
 
-  it('formats fees', () => {
-    expect(formatFee(0)).toBeDefined();
-    expect(formatFee(500)).toBeDefined();
+  it('formats credits', () => {
+    expect(formatCredits(0)).toBeDefined();
+    expect(formatCredits(500)).toBeDefined();
   });
 });
