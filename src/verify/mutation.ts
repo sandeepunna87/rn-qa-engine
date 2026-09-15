@@ -47,6 +47,10 @@ export async function mutationScore(
     // leaving gigabytes behind and reporting the gate as SKIPPED.
     ignorePatterns: [...DEFAULT_STRYKER_IGNORES, ...config.gates.strykerIgnorePatterns],
     cleanTempDir: true,
+    // Static mutants force a full-suite re-run each. Measured on a real RN
+    // repo: 260 of 322 mutants on one module were static and accounted for
+    // essentially all the runtime.
+    ignoreStatic: config.gates.ignoreStaticMutants,
     // Mutate ONLY the file under test — mutating the repo would take hours.
     // With coverageAnalysis "perTest", Stryker then runs just the tests that
     // actually cover each mutant, so scoping the test set is unnecessary.

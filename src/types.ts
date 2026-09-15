@@ -182,6 +182,18 @@ export interface EngineConfig {
      * it is a hard crash (EISDIR on ios/Pods framework symlinks).
      */
     strykerIgnorePatterns: string[];
+    /**
+     * Skip "static" mutants — those in code that runs once at module load
+     * (top-level constants, lookup tables, config objects). Stryker must re-run
+     * the ENTIRE suite for each one, so on a module with large constant tables
+     * they can be 80%+ of mutants and effectively all of the runtime.
+     *
+     * Default true. The trade-off is real and worth stating: module-level
+     * constants are then not mutation-tested, so the score covers only
+     * runtime-reachable code. Set false when you have time and want the
+     * stricter number.
+     */
+    ignoreStaticMutants: boolean;
   };
   maxTasks: number;
 }
