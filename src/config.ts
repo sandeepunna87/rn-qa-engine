@@ -35,6 +35,7 @@ export const DEFAULT_CONFIG: EngineConfig = {
     baseUrl: '',
     token: '',
     projectKey: '',
+    newCodeOnly: true,
     // Tier A allowlist. Deliberately short. Anything not on this list needs a human.
     autoFixRules: [
       'typescript:S1128', // unused import
@@ -89,6 +90,7 @@ export const DEFAULT_CONFIG: EngineConfig = {
     strykerConcurrency: 2,
     strykerIgnorePatterns: [],
     ignoreStaticMutants: true,
+    skipMutation: false,
   },
   maxTasks: 5,
 };

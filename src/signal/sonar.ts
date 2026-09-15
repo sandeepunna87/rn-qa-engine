@@ -47,6 +47,8 @@ export async function fetchSonarIssues(
     url.searchParams.set('p', String(page));
     if (opts.pullRequest) url.searchParams.set('pullRequest', opts.pullRequest);
     else if (opts.branch) url.searchParams.set('branch', opts.branch);
+    // A developer wants the issues THEY introduced, not the repo's backlog.
+    if (config.sonar.newCodeOnly) url.searchParams.set('inNewCodePeriod', 'true');
 
     const res = await fetch(url, {
       headers: {

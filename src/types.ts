@@ -149,6 +149,11 @@ export interface EngineConfig {
     projectKey: string;
     /** Rules the engine is allowed to auto-fix without human review. */
     autoFixRules: string[];
+    /**
+     * Scope issues to Sonar's New Code period, so a developer sees what THEY
+     * introduced rather than the repo's whole backlog.
+     */
+    newCodeOnly: boolean;
   };
   /** Path substrings that force Tier C — engine advises, never edits. */
   sensitivePathPatterns: string[];
@@ -194,6 +199,13 @@ export interface EngineConfig {
      * stricter number.
      */
     ignoreStaticMutants: boolean;
+    /**
+     * Skip the mutation gate. Set by `--fast` for the pre-PR developer loop,
+     * where mutation testing's 10-30 min per file blows the latency budget.
+     * Output is then clearly labelled as NOT fully verified — CI re-runs it
+     * with the gate on.
+     */
+    skipMutation: boolean;
   };
   maxTasks: number;
 }

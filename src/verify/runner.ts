@@ -245,7 +245,13 @@ export async function verify(
 
   // ---- Gate 6: mutation score ---------------------------------------------
   let mScore: number | null = null;
-  if (task.kind === 'test-generation' && testRel) {
+  if (config.gates.skipMutation) {
+    gates.push({
+      name: 'mutation-score',
+      passed: true,
+      detail: 'NOT RUN (--fast). This output is not verified to the usual standard — CI re-runs it with the gate on.',
+    });
+  } else if (task.kind === 'test-generation' && testRel) {
     const m = await mutationScore(config, sandbox, targetRel, testRel);
     mScore = m.score;
     if (m.score === null) {

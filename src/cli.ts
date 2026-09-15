@@ -18,6 +18,7 @@ import {
 import { RunRecord, renderReport } from './report/html';
 import { runCoverage, summariseAll, branchPct } from './signal/coverage';
 import { parseLcovShards, resolveLcovPaths } from './signal/lcov';
+import { findChangedFiles } from './signal/changed';
 import { fetchSonarIssues, groupIssuesByPath } from './signal/sonar';
 import { selectExecutable, triage } from './triage';
 import { Baseline, captureBaseline, captureJestBaseline, captureTscBaseline } from './verify/baseline';
@@ -68,9 +69,14 @@ function buildTasks(
   config: EngineConfig,
   coverage: Map<string, FileCoverage>,
   issues: SonarIssue[],
-  only?: string
+  only?: string,
+  restrictTo?: string[]
 ): Task[] {
   let candidates = findCandidates(config.projectRoot, config.include, config.exclude);
+  if (restrictTo) {
+    const allowed = new Set(restrictTo);
+    candidates = candidates.filter((c) => allowed.has(c));
+  }
   if (only) {
     const abs = path.resolve(config.projectRoot, only);
     candidates = candidates.filter((c) => c === abs || c.includes(only));
@@ -95,7 +101,90 @@ function buildTasks(
   });
 }
 
+
+/** The generate → verify → retry loop, shared by `run` and `feature`. */
+async function runTasks(
+  config: EngineConfig,
+  provider: ReturnType<typeof createProvider>,
+  tasks: Task[],
+  coverage: Map<string, FileCoverage>,
+  baseline: Baseline,
+  apply: boolean
+): Promise<RunRecord[]> {
+  const records: RunRecord[] = [];
+
+  for (const task of tasks) {
+    log(`\n── ${task.id} [tier ${task.tier}] ─────────────`);
+    const firstPrompt =
+      task.kind === 'test-generation'
+        ? buildTestPrompt(config, task)
+        : buildSonarFixPrompt(config, task);
+
+    const messages: ProviderMessage[] = [{ role: 'user', content: firstPrompt }];
+    const record: RunRecord = { task, generation: null, result: null, attempts: 0, diff: '' };
+
+    for (let attempt = 1; attempt <= config.gates.maxAttempts; attempt++) {
+      record.attempts = attempt;
+      log(`  attempt ${attempt}/${config.gates.maxAttempts} — generating…`);
+
+      let raw: string;
+      try {
+        raw = await provider.complete({
+          system: SYSTEM_PROMPT,
+          messages,
+          maxTokens: 8000,
+          temperature: attempt === 1 ? 0.1 : 0.3,
+        });
+      } catch (err) {
+        record.error = `Provider error: ${(err as Error).message}`;
+        log(`  ✕ ${record.error}`);
+        break;
+      }
+
+      const gen = parseGeneration(task.id, raw);
+      record.generation = gen;
+
+      const { result, sandbox } = await verify(config, task, gen, attempt, coverage, baseline);
+      record.result = result;
+      for (const g of result.gates) {
+        log(`    ${g.passed ? '✓' : '✕'} ${g.name}: ${g.detail.split('\n')[0].slice(0, 110)}`);
+      }
+
+      if (result.accepted) {
+        record.diff = sandbox.unifiedDiff();
+        if (apply) {
+          if (gen.testFile) {
+            const dest = path.join(config.projectRoot, gen.testFile.path);
+            fs.mkdirSync(path.dirname(dest), { recursive: true });
+            fs.writeFileSync(dest, gen.testFile.contents, 'utf8');
+            log(`  ✓ wrote ${gen.testFile.path}`);
+          }
+          for (const e of gen.edits) {
+            const dest = path.join(config.projectRoot, e.path);
+            const src = fs.readFileSync(dest, 'utf8');
+            fs.writeFileSync(dest, src.replace(e.search, e.replace), 'utf8');
+            log(`  ✓ patched ${e.path}`);
+          }
+        }
+        sandbox.destroy(config.projectRoot);
+        break;
+      }
+
+      sandbox.destroy(config.projectRoot);
+      if (attempt === config.gates.maxAttempts) {
+        log(`  ✕ giving up after ${attempt} attempts — nothing written`);
+        break;
+      }
+      messages.push({ role: 'assistant', content: raw });
+      messages.push({ role: 'user', content: buildRetryPrompt(result.feedback ?? 'Unknown failure.') });
+    }
+    records.push(record);
+  }
+  return records;
+}
+
 /* ------------------------------------------------------------------ commands */
+
 
 const program = new Command();
 program
@@ -256,6 +345,77 @@ program
 
     // Non-zero exit if nothing survived the gates — makes the Jenkins stage honest.
     process.exitCode = records.length > 0 && accepted === 0 ? 1 : 0;
+  });
+
+program
+  .command('feature')
+  .description(
+    'The developer loop: cover and lint only the files YOU changed, before you raise the PR. Scoped to your git diff, not the whole repo.'
+  )
+  .option('-p, --project <dir>', 'project root', process.cwd())
+  .option('-c, --config <file>', 'config file path')
+  .option('--since <ref>', 'compare against this ref (default: merge-base with origin/main)')
+  .option('--fast', 'skip the mutation gate to stay inside a pre-PR latency budget', false)
+  .option('--apply', 'write accepted changes into the working tree', false)
+  .option('--plan', 'show what would run and stop — no model called', false)
+  .option('--report <file>', 'HTML report output', 'rnqa-feature.html')
+  .action(async (o) => {
+    const started = Date.now();
+    const config = loadConfig(o.project, o.config);
+    if (o.fast) config.gates.skipMutation = true;
+
+    const changed = findChangedFiles(config.projectRoot, o.since);
+    const b = changed.breakdown;
+    log(`▸ base: ${changed.baseRef}`);
+    log(
+      `▸ ${changed.files.length} changed file(s) — ${b.committed} committed, ${b.staged} staged, ${b.unstaged} unstaged, ${b.untracked} new`
+    );
+    if (changed.files.length === 0) {
+      log('  nothing changed against that ref — try --since <ref>');
+      return;
+    }
+
+    const { coverage, issues } = await collectSignals(config, { skipCoverage: false });
+    // maxTasks caps a repo-wide sweep; your own diff should not be truncated.
+    const scoped = { ...config, maxTasks: Math.max(config.maxTasks, changed.files.length) };
+    const tasks = buildTasks(scoped, coverage, issues, undefined, changed.files);
+    const { executable, advisory } = selectExecutable(tasks, scoped.maxTasks);
+
+    log(`▸ ${executable.length} task(s) on your changes, ${advisory.length} advisory\n`);
+    for (const t of executable) {
+      log(`  [${t.tier}] ${t.id}`);
+      t.rationale.slice(0, 2).forEach((r) => log(`      · ${r}`));
+    }
+    if (advisory.length) {
+      log('\n  Tier C — reported, never edited:');
+      advisory.forEach((t) => log(`      · ${t.id}`));
+    }
+
+    if (o.plan) {
+      log('\n--plan: stopping before any model call.');
+      return;
+    }
+    if (o.fast) {
+      log('\n⚠ --fast: the mutation gate is OFF. Output is not fully verified; CI re-runs it.');
+    }
+
+    const provider = createProvider(config);
+    log(`▸ provider: ${provider.name}`);
+    log('▸ capturing pre-existing failures…');
+    const baseline: Baseline = captureBaseline(config);
+    baseline.notes.forEach((n) => log(`  · ${n}`));
+
+    const records: RunRecord[] = await runTasks(config, provider, executable, coverage, baseline, o.apply);
+
+    const html = renderReport(config, records, advisory, {
+      provider: provider.name + (o.fast ? ' · FAST MODE (mutation gate off)' : ''),
+      durationMs: Date.now() - started,
+      startedAt: new Date(started).toISOString(),
+    });
+    fs.writeFileSync(path.resolve(config.projectRoot, o.report), html, 'utf8');
+    log(`\n▸ report: ${path.resolve(config.projectRoot, o.report)}`);
+    const accepted = records.filter((r) => r.result?.accepted).length;
+    log(`▸ ${accepted}/${records.length} accepted`);
   });
 
 program
