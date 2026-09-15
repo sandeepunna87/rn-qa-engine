@@ -1,0 +1,23 @@
+{
+  "name": "rn-qa-engine",
+  "version": "0.1.0",
+  "description": "Self-hosted AI engine that analyses a React Native + TypeScript repo and generates verified Jest/RNTL tests and SonarQube fixes.",
+  "bin": { "rnqa": "dist/cli.js" },
+  "main": "dist/cli.js",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "ts-node src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "ts-morph": "^23.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  },
+  "engines": { "node": ">=20" }
+}
