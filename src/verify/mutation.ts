@@ -48,7 +48,7 @@ export async function mutationScore(
     jsonReporter: { fileName: '.rnqa/mutation.json' },
     coverageAnalysis: 'perTest',
     timeoutMS: 20000,
-    concurrency: 2,
+    concurrency: config.gates.strykerConcurrency,
     disableTypeChecks: true,
   };
 

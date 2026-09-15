@@ -45,6 +45,7 @@ export function runCoverage(
     '--passWithNoTests',
   ];
   if (config.jest.configPath) args.push(`--config=${config.jest.configPath}`);
+  if (config.jest.maxWorkers) args.push(`--maxWorkers=${config.jest.maxWorkers}`);
   if (opts.testPathPattern) args.push(`--testPathPattern=${opts.testPathPattern}`);
 
   try {

@@ -22,7 +22,9 @@ export const DEFAULT_CONFIG: EngineConfig = {
     '**/*.stories.tsx',
   ],
   testGlob: '__tests__',
-  jest: { command: 'npx jest', configPath: null },
+  // maxWorkers=2 is deliberate: jest defaults to cpus-1 workers, and on a 16GB
+  // machine a large React Native repo will exhaust memory before it finishes.
+  jest: { command: 'npx jest', configPath: null, maxWorkers: '2' },
   sonar: {
     enabled: false,
     baseUrl: '',
@@ -71,6 +73,8 @@ export const DEFAULT_CONFIG: EngineConfig = {
     minBranchCoverageDelta: 15,
     maxAttempts: 3,
     enforceScope: true,
+    regressionScope: 'related',
+    strykerConcurrency: 2,
   },
   maxTasks: 5,
 };

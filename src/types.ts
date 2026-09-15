@@ -126,7 +126,12 @@ export interface EngineConfig {
   include: string[];
   exclude: string[];
   testGlob: string;
-  jest: { command: string; configPath: string | null };
+  jest: {
+    command: string;
+    configPath: string | null;
+    /** Cap jest workers. On a 16GB box, jest's default (cpus-1) will OOM a large RN repo. */
+    maxWorkers: string | null;
+  };
   sonar: {
     enabled: boolean;
     baseUrl: string;
@@ -150,6 +155,17 @@ export interface EngineConfig {
     maxAttempts: number;
     /** Reject a generation that edits files outside the task's target. */
     enforceScope: boolean;
+    /**
+     * 'full'    — run the entire suite for the no-regression gate (slow, thorough)
+     * 'related' — run only tests related to the touched files (default)
+     *
+     * For a test-generation task the generation only ADDS a test file, which can
+     * only break other tests via shared global state. 'related' catches the
+     * realistic cases at a fraction of the cost on a large repo.
+     */
+    regressionScope: 'full' | 'related';
+    /** Stryker parallelism. Each worker is a full jest process — keep low on 16GB. */
+    strykerConcurrency: number;
   };
   maxTasks: number;
 }

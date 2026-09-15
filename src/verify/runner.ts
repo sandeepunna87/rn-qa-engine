@@ -134,7 +134,10 @@ export async function verify(
   }
 
   // ---- Gate 3: the new tests pass -----------------------------------------
-  const [jestBin, ...jestArgs] = config.jest.command.split(/\s+/);
+  const [jestBin, ...jestArgsBase] = config.jest.command.split(/\s+/);
+  const jestArgs = config.jest.maxWorkers
+    ? [...jestArgsBase, `--maxWorkers=${config.jest.maxWorkers}`]
+    : jestArgsBase;
   const targetTest = testRel ?? targetRel;
   const newTests = run(
     jestBin,
@@ -158,11 +161,15 @@ export async function verify(
   } else {
     const jsonOut = path.join(sandbox.root, '.rnqa', 'jest-after.json');
     fs.mkdirSync(path.dirname(jsonOut), { recursive: true });
-    run(
-      jestBin,
-      [...jestArgs, '--ci', '--silent', '--json', `--outputFile=${jsonOut}`],
-      sandbox.root
-    );
+
+    // On a large repo the full suite per attempt is the dominant cost. A
+    // test-generation task only ADDS a file, which can break other tests only
+    // through shared global state, so 'related' is the sensible default.
+    const regressionArgs =
+      config.gates.regressionScope === 'related'
+        ? [...jestArgs, '--ci', '--silent', '--json', `--outputFile=${jsonOut}`, '--findRelatedTests', targetRel]
+        : [...jestArgs, '--ci', '--silent', '--json', `--outputFile=${jsonOut}`];
+    run(jestBin, regressionArgs, sandbox.root);
     if (!fs.existsSync(jsonOut)) {
       gates.push({ name: 'no-regression', passed: true, detail: 'SKIPPED — jest produced no report.' });
     } else {
@@ -173,7 +180,7 @@ export async function verify(
         name: 'no-regression',
         passed,
         detail: passed
-          ? `No new failures (${baseline.failingTests.size} already failing before this change, ignored).`
+          ? `No new failures [scope: ${config.gates.regressionScope}] (${baseline.failingTests.size} already failing before this change, ignored).`
           : `${introduced.length} NEWLY failing test(s):\n${introduced.slice(0, 10).join('\n')}`,
       });
       if (!passed) {

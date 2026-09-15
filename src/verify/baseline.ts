@@ -101,6 +101,7 @@ export function captureJestBaseline(
   fs.mkdirSync(path.dirname(jsonPath), { recursive: true });
 
   const args = [...baseArgs, '--ci', '--silent', '--json', `--outputFile=${jsonPath}`];
+  if (config.jest.maxWorkers) args.push(`--maxWorkers=${config.jest.maxWorkers}`);
   if (config.jest.configPath) args.push(`--config=${config.jest.configPath}`);
 
   try {

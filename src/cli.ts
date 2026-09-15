@@ -2,6 +2,7 @@
 import { Command } from 'commander';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { loadConfig } from './config';
 import { createProject, extractFacts } from './context/facts';
@@ -255,6 +256,34 @@ program
     const add = (name: string, ok: boolean | 'warn', detail: string): void => {
       checks.push({ name, ok, detail });
     };
+
+    // Memory — the constraint that actually decides whether local inference is
+    // viable on this machine.
+    const totalGb = os.totalmem() / 1024 ** 3;
+    const projectMb = (() => {
+      try {
+        const out = execFileSync('du', ['-sm', '--exclude=node_modules', root], {
+          encoding: 'utf8',
+          maxBuffer: 16 * 1024 * 1024,
+        });
+        return parseInt(out.split(/\s+/)[0], 10);
+      } catch {
+        return -1;
+      }
+    })();
+    add(
+      'memory headroom',
+      totalGb >= 24 ? true : 'warn',
+      `${totalGb.toFixed(0)}GB RAM, project ${projectMb > 0 ? `${projectMb}MB` : 'unknown'} (excl. node_modules)` +
+        (totalGb < 24
+          ? ' — too tight to run a local model AND jest/Stryker at once. Use a remote provider and keep this box for verification only.'
+          : '')
+    );
+    add(
+      'resource profile',
+      true,
+      `jest maxWorkers=${config.jest.maxWorkers ?? 'default'}, stryker concurrency=${config.gates.strykerConcurrency}, regression scope=${config.gates.regressionScope}`
+    );
 
     // Node
     const major = parseInt(process.versions.node.split('.')[0], 10);

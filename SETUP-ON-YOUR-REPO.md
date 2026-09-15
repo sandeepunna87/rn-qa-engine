@@ -127,3 +127,52 @@ verbatim, which is a known weakness of smaller local models — that is the
 signal to try the gateway provider rather than ollama.
 
 Send me the doctor output and the first report and I can tell you which it is.
+
+---
+
+## Running on 16GB hardware with a large repo
+
+If your dev laptops and Jenkins box are 16GB and the repo is ~1GB of source,
+the defaults are already tuned for you, but the architecture matters more than
+the tuning.
+
+### Do not run the model on the box that runs the gates
+
+Verification is the memory-hungry half, not inference. Stryker spawns full jest
+processes, and jest on a large React Native repo is a multi-GB process on its
+own. Add a 7B model at ~6GB resident and the machine swaps, which does not fail
+loudly — it just makes every run take hours.
+
+So on 16GB, pick one of:
+
+- **Remote provider, local verification.** `provider.kind: "openai-compatible"`
+  or `"anthropic"`. The 16GB box does only what it is good at: running jest and
+  Stryker. This is the configuration to aim for.
+- **Local 7B anyway.** Safe to try, because the gates mean a weak model produces
+  *nothing*, not something bad. Expect a low acceptance rate. Useful as evidence
+  that a bigger model is needed; not useful as a demo.
+
+### Defaults tuned for this hardware
+
+| Setting | Default | Why |
+|---|---|---|
+| `jest.maxWorkers` | `"2"` | jest defaults to cpus-1; on 16GB a large RN repo exhausts memory first |
+| `gates.strykerConcurrency` | `2` | each worker is a full jest process |
+| `gates.regressionScope` | `"related"` | see below |
+| `maxTasks` | `3` | keeps a run to a sane wall-clock |
+
+`regressionScope: "related"` runs only tests related to the touched file rather
+than the whole suite on every attempt. For a test-generation task the generation
+only *adds* a test file, which can break other tests only through shared global
+state — so this catches the realistic cases at a fraction of the cost. Set it to
+`"full"` for Sonar-fix tasks, which do modify source, or when you have time.
+
+The baseline capture still runs the full suite once per run. That is where the
+list of already-failing tests comes from, and it cannot be scoped.
+
+### Disk
+
+Each sandbox is a git worktree with `node_modules` symlinked, not copied, so a
+run costs megabytes rather than gigabytes. 500GB is not a constraint. Worktrees
+are removed after each task; if a run is killed mid-task, `git worktree prune`
+in the app repo cleans up strays.
