@@ -1,0 +1,16 @@
+{
+  "name": "demo-app",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "jest"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "^8.7.1",
+    "@stryker-mutator/jest-runner": "^8.7.1",
+    "@types/jest": "^29.5.14",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.6.3"
+  }
+}

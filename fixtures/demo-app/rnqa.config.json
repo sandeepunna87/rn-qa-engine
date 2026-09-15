@@ -1,0 +1,7 @@
+{
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "jest": { "command": "npx jest", "configPath": null },
+  "sonar": { "enabled": false },
+  "provider": { "kind": "ollama", "model": "qwen2.5-coder:32b", "baseUrl": "http://127.0.0.1:11434" },
+  "maxTasks": 5
+}

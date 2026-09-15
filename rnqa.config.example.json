@@ -1,0 +1,24 @@
+{
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["**/*.test.tsx", "**/__mocks__/**", "**/*.stories.tsx"],
+  "jest": { "command": "npx jest", "configPath": null },
+  "sonar": {
+    "enabled": false,
+    "baseUrl": "https://REPLACE-ME",
+    "projectKey": "REPLACE-ME",
+    "autoFixRules": ["typescript:S1128", "typescript:S1481", "typescript:S1440"]
+  },
+  "sensitivePathPatterns": ["REPLACE-WITH-YOUR-OWN-FOLDER-NAMES"],
+  "provider": {
+    "kind": "ollama",
+    "model": "qwen2.5-coder:32b",
+    "baseUrl": "http://127.0.0.1:11434"
+  },
+  "gates": {
+    "minMutationScore": 60,
+    "minBranchCoverageDelta": 15,
+    "maxAttempts": 3,
+    "enforceScope": true
+  },
+  "maxTasks": 3
+}
