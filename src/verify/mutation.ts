@@ -1,6 +1,7 @@
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { DEFAULT_STRYKER_IGNORES } from '../context/conventions';
 import { EngineConfig } from '../types';
 import { Sandbox } from './sandbox';
 
@@ -40,6 +41,12 @@ export async function mutationScore(
       projectType: 'custom',
       ...(jestConfigFile ? { configFile: jestConfigFile } : {}),
     },
+    // Stryker copies the project into its own sandbox before mutating. On a
+    // React Native repo that copy hits ios/Pods, whose .framework bundles
+    // contain symlinked "Versions/Current" directories, and dies with EISDIR —
+    // leaving gigabytes behind and reporting the gate as SKIPPED.
+    ignorePatterns: [...DEFAULT_STRYKER_IGNORES, ...config.gates.strykerIgnorePatterns],
+    cleanTempDir: true,
     // Mutate ONLY the file under test — mutating the repo would take hours.
     // With coverageAnalysis "perTest", Stryker then runs just the tests that
     // actually cover each mutant, so scoping the test set is unnecessary.

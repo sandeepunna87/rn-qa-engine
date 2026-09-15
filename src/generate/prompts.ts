@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { detectConventions } from '../context/conventions';
 import { EngineConfig, Task } from '../types';
 import { testPathFor } from '../triage';
 
@@ -13,9 +14,9 @@ Hard rules:
   transitions). A test whose only assertion is toBeTruthy/toBeDefined is a failure.
 - Cover the SPECIFIC uncovered lines and branch arms listed. Each branch arm needs its
   own test case driving that arm.
-- Use @testing-library/react-native with user-centric queries (getByText, getByRole,
-  getByLabelText). Do not use test IDs unless they already exist in the source.
-- Wrap async assertions in waitFor or use findBy* queries. Never leave floating promises.
+- Match the repo's own testing conventions exactly as given under RENDERING and
+  the EXAMPLE TEST. Never import a library that is not already used there.
+- Never leave floating promises; flush async work the way the example does.
 - Mock every native module listed under REQUIRED MOCKS, at the top of the file.`;
 
 function readSnippet(absPath: string, maxLines = 400): string {
@@ -47,6 +48,7 @@ function importTypeContext(task: Task, projectRoot: string, budgetChars = 6000):
 
 export function buildTestPrompt(config: EngineConfig, task: Task): string {
   const rel = path.relative(config.projectRoot, task.targetPath);
+  const conventions = detectConventions(config.projectRoot, task.facts.isComponent);
   const cov = task.coverage;
   const outPath = path.relative(config.projectRoot, testPathFor(config, task.targetPath));
 
@@ -75,6 +77,16 @@ ${task.facts.hooksUsed.join(', ') || '(none)'}
 
 ## LOCAL IMPORT SIGNATURES (real types — do not invent shapes)
 ${importTypeContext(task, config.projectRoot)}
+
+## RENDERING — this repo's actual setup, not a general convention
+${conventions.renderingGuidance}
+
+## EXAMPLE TEST FROM THIS REPO — match this style, these providers, these imports
+${
+  conventions.exemplarText
+    ? `(${path.relative(config.projectRoot, conventions.exemplarPath as string)})\n\`\`\`tsx\n${conventions.exemplarText}\n\`\`\``
+    : '(no existing test found — follow the RENDERING guidance above)'
+}
 
 ## COVERAGE GAP YOU MUST CLOSE
 - Uncovered lines: ${cov?.uncoveredLines.join(', ') || '(none reported — file may be untested entirely)'}

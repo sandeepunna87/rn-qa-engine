@@ -87,6 +87,7 @@ export const DEFAULT_CONFIG: EngineConfig = {
     enforceScope: true,
     regressionScope: 'related',
     strykerConcurrency: 2,
+    strykerIgnorePatterns: [],
   },
   maxTasks: 5,
 };

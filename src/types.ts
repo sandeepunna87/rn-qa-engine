@@ -176,6 +176,12 @@ export interface EngineConfig {
     regressionScope: 'full' | 'related';
     /** Stryker parallelism. Each worker is a full jest process — keep low on 16GB. */
     strykerConcurrency: number;
+    /**
+     * Extra paths Stryker must not copy into its sandbox, on top of the
+     * built-in React Native defaults. Getting this wrong is not a slow run —
+     * it is a hard crash (EISDIR on ios/Pods framework symlinks).
+     */
+    strykerIgnorePatterns: string[];
   };
   maxTasks: number;
 }

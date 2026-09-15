@@ -6,6 +6,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { loadConfig } from './config';
 import { createProject, extractFacts } from './context/facts';
+import { detectConventions } from './context/conventions';
 import { findCandidates } from './context/walk';
 import { createProvider, parseGeneration } from './generate/provider';
 import {
@@ -391,6 +392,20 @@ program
       'react-native project',
       isRN ? true : 'warn',
       isRN ? `react-native ${pkg.dependencies['react-native']}` : 'no react-native dependency found'
+    );
+
+    // Testing conventions — a generated test that imports a library this repo
+    // does not have will fail at import, every time.
+    const conv = detectConventions(root, true);
+    add(
+      'testing library',
+      conv.library !== 'none',
+      conv.library === 'none'
+        ? 'none detected — component tests cannot be generated, only pure functions'
+        : `${conv.library}` +
+          (conv.exemplarPath
+            ? `, style exemplar: ${path.relative(root, conv.exemplarPath)}`
+            : ' (no existing test found to use as a style exemplar)')
     );
 
     // Provider reachability — a local model that is not running is the most
