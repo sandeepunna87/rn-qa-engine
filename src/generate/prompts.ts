@@ -19,11 +19,36 @@ Hard rules:
 - Never leave floating promises; flush async work the way the example does.
 - Mock every native module listed under REQUIRED MOCKS, at the top of the file.`;
 
-function readSnippet(absPath: string, maxLines = 400): string {
+/**
+ * The source, numbered. A flat line cap silently hid the exact code the model
+ * was asked to cover — a 524-line screen component truncated at 400 lost the
+ * region containing several of its uncovered branch arms. So: send the whole
+ * file when it fits, and when it does not, keep the head (imports, types,
+ * component signature) plus a window around every line the task is about.
+ */
+function readSnippet(absPath: string, focusLines: number[] = [], maxLines = 900): string {
   const lines = fs.readFileSync(absPath, 'utf8').split('\n');
-  const numbered = lines.slice(0, maxLines).map((l, i) => `${String(i + 1).padStart(4)} | ${l}`);
-  if (lines.length > maxLines) numbered.push(`... (${lines.length - maxLines} more lines truncated)`);
-  return numbered.join('\n');
+  const n = (i: number): string => `${String(i + 1).padStart(4)} | ${lines[i]}`;
+
+  if (lines.length <= maxLines) return lines.map((_, i) => n(i)).join('\n');
+
+  const keep = new Set<number>();
+  for (let i = 0; i < Math.min(120, lines.length); i++) keep.add(i);
+  for (const line of focusLines) {
+    for (let i = Math.max(0, line - 26); i < Math.min(lines.length, line + 14); i++) keep.add(i);
+  }
+
+  const out: string[] = [];
+  let lastKept = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (!keep.has(i)) continue;
+    if (lastKept !== -1 && i > lastKept + 1) {
+      out.push(`     … ${i - lastKept - 1} lines omitted (not relevant to this task) …`);
+    }
+    out.push(n(i));
+    lastKept = i;
+  }
+  return out.join('\n');
 }
 
 function importTypeContext(task: Task, projectRoot: string, budgetChars = 6000): string {
@@ -60,7 +85,10 @@ export function buildTestPrompt(config: EngineConfig, task: Task): string {
 
 ## TARGET FILE: ${rel}
 \`\`\`tsx
-${readSnippet(task.targetPath)}
+${readSnippet(task.targetPath, [
+  ...(cov?.uncoveredLines ?? []),
+  ...(cov?.uncoveredBranchLines ?? []),
+])}
 \`\`\`
 
 ## EXPORTS YOU MAY IMPORT
@@ -113,7 +141,7 @@ export function buildSonarFixPrompt(config: EngineConfig, task: Task): string {
 
 ## TARGET FILE: ${rel}
 \`\`\`tsx
-${readSnippet(task.targetPath)}
+${readSnippet(task.targetPath, task.sonarIssues.map((i) => i.line))}
 \`\`\`
 
 ## ISSUES TO RESOLVE
