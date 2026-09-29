@@ -82,22 +82,32 @@ export async function mutationScore(
     };
   }
 
-  let stderr = '';
+  // Capture BOTH streams, on success and on failure. Stryker reports several
+  // fatal conditions on stdout and exits zero, so a stderr-only capture leaves
+  // "produced no report" with nothing to go on — which is exactly how this
+  // gate went silently missing on a real repo.
+  let output = '';
   try {
-    execFileSync(process.execPath, [strykerBin, 'run', cfgPath], {
-      cwd: sandbox.root,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, CI: 'true' },
-      maxBuffer: 64 * 1024 * 1024,
-      timeout: 15 * 60 * 1000,
-    });
+    output = String(
+      execFileSync(process.execPath, [strykerBin, 'run', cfgPath], {
+        cwd: sandbox.root,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, CI: 'true' },
+        maxBuffer: 64 * 1024 * 1024,
+        timeout: 15 * 60 * 1000,
+      }) ?? ''
+    );
   } catch (err) {
     // Stryker exits non-zero when the score is under its own threshold; the
-    // report is still written. Only a missing report is a real failure — but
-    // keep stderr so a genuinely broken run is diagnosable, not silent.
-    const e = err as { stderr?: Buffer | string; message?: string };
-    stderr = String(e.stderr ?? e.message ?? '').split('\n').slice(-6).join('\n');
+    // report is still written. Only a missing report is a real failure.
+    const e = err as { stdout?: Buffer | string; stderr?: Buffer | string; message?: string };
+    output = `${String(e.stdout ?? '')}\n${String(e.stderr ?? '')}\n${String(e.message ?? '')}`;
   }
+  const stderr = output
+    .split('\n')
+    .filter((l) => l.trim().length > 0)
+    .slice(-12)
+    .join('\n');
 
   const reportPath = path.join(sandbox.root, '.rnqa', 'mutation.json');
   if (!fs.existsSync(reportPath)) {
