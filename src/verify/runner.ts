@@ -227,13 +227,29 @@ export async function verify(
     const afterMap = summariseAll(rawAfter);
     coverageAfter = afterMap.get(path.join(sandbox.root, targetRel)) ?? null;
 
-    const deltaB = branchPct(coverageAfter) - branchPct(before);
-    const passed = deltaB >= config.gates.minBranchCoverageDelta;
+    const beforePct = branchPct(before);
+    const afterPct = branchPct(coverageAfter);
+    const deltaB = afterPct - beforePct;
+
+    // A file already at 94% cannot gain 15 points — there are only 6 left.
+    // Requiring a flat delta rejects a perfect result on exactly the files
+    // that are closest to done, so the requirement is capped by what is
+    // actually available, and reaching 100% always passes.
+    const available = 100 - beforePct;
+    const required = Math.min(config.gates.minBranchCoverageDelta, available);
+    const passed = afterPct >= 100 || deltaB >= required - 1e-9;
+
     gates.push({
       name: 'coverage-delta',
       passed,
       value: deltaB,
-      detail: `Branch coverage ${branchPct(before).toFixed(0)}% → ${branchPct(coverageAfter).toFixed(0)}% (Δ ${deltaB.toFixed(0)}pp, need ≥${config.gates.minBranchCoverageDelta}pp).`,
+      detail:
+        `Branch coverage ${beforePct.toFixed(0)}% → ${afterPct.toFixed(0)}% ` +
+        `(Δ ${deltaB.toFixed(0)}pp, need ≥${required.toFixed(0)}pp` +
+        (required < config.gates.minBranchCoverageDelta
+          ? ` — capped from ${config.gates.minBranchCoverageDelta}pp, only ${available.toFixed(0)}pp were available)`
+          : ')') +
+        '.',
     });
     if (!passed) {
       const stillUncovered = coverageAfter?.uncoveredBranchLines.join(', ') ?? 'unknown';
