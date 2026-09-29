@@ -80,10 +80,17 @@ export function synthesize(config: EngineConfig, task: Task): Generation & { not
     );
   }
 
+  const nonDeterministic = [...results.values()].filter((r) =>
+    (r.reason ?? '').startsWith('non-deterministic')
+  ).length;
+
   const note =
     `Derived ${fixtures.length} fixture(s) across ${targets.length} function(s); ` +
-    `emitted ${stats.cases} case(s) (${stats.throws} expecting a throw), skipped ${stats.skipped}. ` +
-    `Expected values are what the code returned when probed — characterization, not correctness.`;
+    `emitted ${stats.cases} case(s) (${stats.throws} expecting a throw), skipped ${stats.skipped}` +
+    (nonDeterministic > 0
+      ? ` — ${nonDeterministic} because the output changed between two identical calls (reads the clock, randomness or other ambient state; inject it to make those testable)`
+      : '') +
+    `. Expected values are what the code returned when probed — characterization, not correctness.`;
 
   return {
     taskId: task.id,

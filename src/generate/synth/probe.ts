@@ -124,13 +124,42 @@ describe('rnqa probe', () => {
           continue;
         }
         const literal = toLiteral(out);
-        results.push(
-          literal === null
-            ? { id: f.id, kind: 'opaque', reason: 'not representable as a literal' }
-            : { id: f.id, kind: 'value', literal }
-        );
+        if (literal === null) {
+          results.push({ id: f.id, kind: 'opaque', reason: 'not representable as a literal' });
+          continue;
+        }
+
+        // Call it a SECOND time with the same arguments. A function that reads
+        // the clock, Math.random or any ambient state returns something
+        // different, and characterization cannot pin it — the captured value is
+        // already stale when it is written. Better to refuse than to emit a
+        // test that fails on its first run.
+        const again = (fn as (...a: unknown[]) => unknown)(...f.args);
+        if (toLiteral(again) !== literal) {
+          results.push({
+            id: f.id,
+            kind: 'opaque',
+            reason: 'non-deterministic — two identical calls returned different values',
+          });
+          continue;
+        }
+
+        results.push({ id: f.id, kind: 'value', literal });
       } catch (e) {
-        results.push({ id: f.id, kind: 'throw', message: String((e as Error)?.message ?? e) });
+        const message = String((e as Error)?.message ?? e);
+        // Same check for throws: a message carrying a timestamp or an id is
+        // not reproducible either.
+        try {
+          (fn as (...a: unknown[]) => unknown)(...f.args);
+          results.push({ id: f.id, kind: 'opaque', reason: 'threw only once — not reproducible' });
+        } catch (e2) {
+          const message2 = String((e2 as Error)?.message ?? e2);
+          results.push(
+            message2 === message
+              ? { id: f.id, kind: 'throw', message }
+              : { id: f.id, kind: 'opaque', reason: 'non-deterministic error message' }
+          );
+        }
       }
     }
     fs.writeFileSync(${JSON.stringify(outPath)}, JSON.stringify(results, null, 2));
