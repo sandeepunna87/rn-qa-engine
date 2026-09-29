@@ -115,8 +115,13 @@ export async function verify(
   // ---- Gate 1: scope guard -------------------------------------------------
   if (config.gates.enforceScope) {
     const allowed = new Set<string>([targetRel, ...(testRel ? [testRel] : [])]);
+    // Sandbox infrastructure is not model output. node_modules in particular
+    // is SYMLINKED into the worktree, and a .gitignore entry of "node_modules/"
+    // does not match a symlink — so git reports it as an untracked change and
+    // the scope guard rejects every generation on any real repo.
+    const INFRA = /^(node_modules|\.rnqa|\.stryker-tmp|coverage|dist|rnqa-report\.html|rnqa-feature\.html|stryker\.rnqa\.json)($|\/)/;
     const changed = sandbox.changedFiles();
-    const outOfScope = changed.filter((f) => !allowed.has(f));
+    const outOfScope = changed.filter((f) => !allowed.has(f) && !INFRA.test(f));
     const passed = outOfScope.length === 0;
     gates.push({
       name: 'scope-guard',
