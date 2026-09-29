@@ -36,6 +36,8 @@ function probeSource(targetImportPath: string, fixtures: Fixture[], outPath: str
 import * as fs from 'fs';
 import * as targetModule from '${targetImportPath}';
 
+const OUT_PATH = ${JSON.stringify(outPath)};
+
 const FIXTURES: { id: string; fnName: string; args: unknown[] }[] = [
 ${fixtures
   .map((f) => {
@@ -110,59 +112,70 @@ function toLiteral(v: unknown, seen: unknown[] = []): string | null {
 
 describe('rnqa probe', () => {
   it('captures behaviour for each derived fixture', () => {
-    const results: unknown[] = [];
-    for (const f of FIXTURES) {
+    type Outcome =
+      | { kind: 'value'; literal: string }
+      | { kind: 'throw'; message: string }
+      | { kind: 'opaque'; reason: string };
+
+    const callOnce = (f: { fnName: string; args: unknown[] }): Outcome => {
       const fn = (targetModule as Record<string, unknown>)[f.fnName];
-      if (typeof fn !== 'function') {
-        results.push({ id: f.id, kind: 'opaque', reason: 'export is not a function' });
-        continue;
-      }
+      if (typeof fn !== 'function') return { kind: 'opaque', reason: 'export is not a function' };
       try {
         const out = (fn as (...a: unknown[]) => unknown)(...f.args);
         if (out && typeof (out as { then?: unknown }).then === 'function') {
-          results.push({ id: f.id, kind: 'opaque', reason: 'returns a promise' });
-          continue;
+          return { kind: 'opaque', reason: 'returns a promise' };
         }
         const literal = toLiteral(out);
-        if (literal === null) {
-          results.push({ id: f.id, kind: 'opaque', reason: 'not representable as a literal' });
-          continue;
-        }
-
-        // Call it a SECOND time with the same arguments. A function that reads
-        // the clock, Math.random or any ambient state returns something
-        // different, and characterization cannot pin it — the captured value is
-        // already stale when it is written. Better to refuse than to emit a
-        // test that fails on its first run.
-        const again = (fn as (...a: unknown[]) => unknown)(...f.args);
-        if (toLiteral(again) !== literal) {
-          results.push({
-            id: f.id,
-            kind: 'opaque',
-            reason: 'non-deterministic — two identical calls returned different values',
-          });
-          continue;
-        }
-
-        results.push({ id: f.id, kind: 'value', literal });
+        return literal === null
+          ? { kind: 'opaque', reason: 'not representable as a literal' }
+          : { kind: 'value', literal };
       } catch (e) {
-        const message = String((e as Error)?.message ?? e);
-        // Same check for throws: a message carrying a timestamp or an id is
-        // not reproducible either.
-        try {
-          (fn as (...a: unknown[]) => unknown)(...f.args);
-          results.push({ id: f.id, kind: 'opaque', reason: 'threw only once — not reproducible' });
-        } catch (e2) {
-          const message2 = String((e2 as Error)?.message ?? e2);
-          results.push(
-            message2 === message
-              ? { id: f.id, kind: 'throw', message }
-              : { id: f.id, kind: 'opaque', reason: 'non-deterministic error message' }
-          );
-        }
+        return { kind: 'throw', message: String((e as Error)?.message ?? e) };
       }
+    };
+
+    // Two passes, with the clock allowed to advance between them.
+    //
+    // Calling twice back-to-back does NOT detect a function that reads the
+    // clock: both calls land inside the same millisecond, so
+    // new Date().toISOString() returns the same string and the function looks
+    // deterministic. Waiting for the millisecond to tick is what makes the
+    // check actually work.
+    const first = FIXTURES.map((f) => callOnce(f));
+
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 3) {
+      /* busy-wait for the clock to move */
     }
-    fs.writeFileSync(${JSON.stringify(outPath)}, JSON.stringify(results, null, 2));
+
+    const second = FIXTURES.map((f) => callOnce(f));
+
+    const results = FIXTURES.map((f, i) => {
+      const a = first[i];
+      const b = second[i];
+
+      if (a.kind === 'opaque') return { id: f.id, kind: 'opaque', reason: a.reason };
+      if (a.kind !== b.kind) {
+        return { id: f.id, kind: 'opaque', reason: 'non-deterministic — outcome changed between calls' };
+      }
+      if (a.kind === 'value' && b.kind === 'value') {
+        return a.literal === b.literal
+          ? { id: f.id, kind: 'value', literal: a.literal }
+          : {
+              id: f.id,
+              kind: 'opaque',
+              reason: 'non-deterministic — two identical calls returned different values',
+            };
+      }
+      if (a.kind === 'throw' && b.kind === 'throw') {
+        return a.message === b.message
+          ? { id: f.id, kind: 'throw', message: a.message }
+          : { id: f.id, kind: 'opaque', reason: 'non-deterministic error message' };
+      }
+      return { id: f.id, kind: 'opaque', reason: 'unclassifiable' };
+    });
+
+    fs.writeFileSync(OUT_PATH, JSON.stringify(results, null, 2));
     expect(results.length).toBe(FIXTURES.length);
   });
 });
