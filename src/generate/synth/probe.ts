@@ -22,7 +22,8 @@ export interface ProbeResult {
   id: string;
   /** 'value' — returned; 'throw' — threw; 'opaque' — not representable as a literal. */
   kind: 'value' | 'throw' | 'opaque';
-  value?: unknown;
+  /** A JS source literal, ready to paste into the test. NOT JSON. */
+  literal?: string;
   message?: string;
   reason?: string;
 }
@@ -39,23 +40,64 @@ const FIXTURES: { id: string; fnName: string; args: unknown[] }[] = ${JSON.strin
 )};
 
 /**
- * A value is only usable as an assertion if it can be written back out as a
- * literal. Functions, symbols, class instances, circular structures and
- * anything carrying undefined round-trip badly, so they are recorded as
- * opaque and skipped rather than silently mangled into a wrong expectation.
+ * Serialise to a JS SOURCE LITERAL, not to JSON.
+ *
+ * JSON cannot represent Infinity, -Infinity, NaN, -0 or undefined — it turns
+ * the first three into null and drops the last. A tax slab whose upper bound
+ * is Infinity came back as null, and 92 of 187 generated assertions failed
+ * against the real value. A round-trip check cannot catch this: null
+ * round-trips to null perfectly.
+ *
+ * JavaScript has literals for all of them, so emit those and skip JSON.
  */
-function represent(v: unknown): { kind: 'value' | 'opaque'; value?: unknown; reason?: string } {
-  if (v === undefined) return { kind: 'value', value: null, reason: 'undefined' };
-  if (typeof v === 'function' || typeof v === 'symbol') return { kind: 'opaque', reason: typeof v };
-  try {
-    const json = JSON.stringify(v);
-    if (json === undefined) return { kind: 'opaque', reason: 'not serialisable' };
-    const round = JSON.parse(json);
-    if (JSON.stringify(round) !== json) return { kind: 'opaque', reason: 'unstable round-trip' };
-    return { kind: 'value', value: round };
-  } catch (e) {
-    return { kind: 'opaque', reason: String((e as Error)?.message ?? e) };
+function toLiteral(v: unknown, seen: unknown[] = []): string | null {
+  if (v === undefined) return 'undefined';
+  if (v === null) return 'null';
+
+  const t = typeof v;
+  if (t === 'number') {
+    const n = v as number;
+    if (Number.isNaN(n)) return 'NaN';
+    if (n === Infinity) return 'Infinity';
+    if (n === -Infinity) return '-Infinity';
+    if (Object.is(n, -0)) return '-0';
+    return String(n);
   }
+  if (t === 'boolean') return String(v);
+  if (t === 'string') return JSON.stringify(v);
+  if (t === 'bigint') return String(v) + 'n';
+  if (t === 'function' || t === 'symbol') return null;
+
+  if (v instanceof Date) return 'new Date(' + JSON.stringify(v.toISOString()) + ')';
+  if (v instanceof RegExp || v instanceof Map || v instanceof Set) return null;
+
+  if (seen.indexOf(v) !== -1) return null; // circular
+
+  if (Array.isArray(v)) {
+    const parts: string[] = [];
+    for (const item of v) {
+      const lit = toLiteral(item, seen.concat([v]));
+      if (lit === null) return null;
+      parts.push(lit);
+    }
+    return '[' + parts.join(', ') + ']';
+  }
+
+  if (t === 'object') {
+    const proto = Object.getPrototypeOf(v);
+    // Class instances do not round-trip into an object literal faithfully.
+    if (proto !== Object.prototype && proto !== null) return null;
+    const parts: string[] = [];
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      const lit = toLiteral(val, seen.concat([v]));
+      if (lit === null) return null;
+      const key = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k) ? k : JSON.stringify(k);
+      parts.push(key + ': ' + lit);
+    }
+    return '{' + parts.join(', ') + '}';
+  }
+
+  return null;
 }
 
 describe('rnqa probe', () => {
@@ -73,11 +115,11 @@ describe('rnqa probe', () => {
           results.push({ id: f.id, kind: 'opaque', reason: 'returns a promise' });
           continue;
         }
-        const r = represent(out);
+        const literal = toLiteral(out);
         results.push(
-          r.kind === 'value'
-            ? { id: f.id, kind: 'value', value: r.value, reason: r.reason }
-            : { id: f.id, kind: 'opaque', reason: r.reason }
+          literal === null
+            ? { id: f.id, kind: 'opaque', reason: 'not representable as a literal' }
+            : { id: f.id, kind: 'value', literal }
         );
       } catch (e) {
         results.push({ id: f.id, kind: 'throw', message: String((e as Error)?.message ?? e) });

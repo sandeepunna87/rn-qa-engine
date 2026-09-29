@@ -79,7 +79,7 @@ export function emitTestFile(input: EmitInput): EmitOutput {
       }
 
       const argsLiteral = f.args.map((a) => toLiteral(a, 3)).join(', ');
-      const dedupeKey = `${argsLiteral}::${r.kind}::${JSON.stringify(r.value ?? r.message)}`;
+      const dedupeKey = `${argsLiteral}::${r.kind}::${r.literal ?? r.message ?? ''}`;
       if (seen.has(dedupeKey)) {
         skipped++;
         continue;
@@ -100,9 +100,9 @@ export function emitTestFile(input: EmitInput): EmitOutput {
       }
 
       cases++;
-      const expected = toLiteral(r.value, 2);
-      // `undefined` was recorded as null with a reason, to survive JSON.
-      const expectedLiteral = r.reason === 'undefined' ? 'undefined' : expected;
+      // The probe already produced a JS literal from the live value — pasting
+      // it verbatim is what keeps Infinity, NaN and undefined intact.
+      const expectedLiteral = r.literal ?? 'undefined';
       its.push(
         `  it(${title}, () => {\n` +
           `    expect(${fnName}(${argsLiteral})).toEqual(${expectedLiteral});\n` +
