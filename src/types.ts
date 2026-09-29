@@ -158,7 +158,11 @@ export interface EngineConfig {
   /** Path substrings that force Tier C — engine advises, never edits. */
   sensitivePathPatterns: string[];
   provider: {
-    kind: 'ollama' | 'anthropic' | 'bedrock' | 'openai-compatible';
+    /**
+     * 'builtin' is the no-model generator: derives inputs from types, runs the
+     * code, pins what it returns. Everything else calls out to a model.
+     */
+    kind: 'builtin' | 'ollama' | 'anthropic' | 'bedrock' | 'openai-compatible';
     model: string;
     baseUrl?: string;
     apiKeyEnv?: string;

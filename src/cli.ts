@@ -9,6 +9,7 @@ import { createProject, extractFacts } from './context/facts';
 import { detectConventions } from './context/conventions';
 import { findCandidates } from './context/walk';
 import { createProvider, parseGeneration } from './generate/provider';
+import { synthesize } from './generate/synth';
 import {
   SYSTEM_PROMPT,
   buildRetryPrompt,
@@ -122,6 +123,39 @@ async function runTasks(
 
     const messages: ProviderMessage[] = [{ role: 'user', content: firstPrompt }];
     const record: RunRecord = { task, generation: null, result: null, attempts: 0, diff: '' };
+
+    // The built-in generator is deterministic: the same inputs give the same
+    // output, so retrying it is pointless. One pass, then the gates decide.
+    if (config.provider.kind === 'builtin') {
+      record.attempts = 1;
+      log('  synthesising (no model)…');
+      const gen = synthesize(config, task);
+      record.generation = gen;
+      if (!gen.testFile) {
+        log(`  ✕ ${gen.note}`);
+        record.error = gen.note;
+        records.push(record);
+        continue;
+      }
+      log(`  ${gen.note}`);
+      const { result, sandbox } = await verify(config, task, gen, 1, coverage, baseline);
+      record.result = result;
+      for (const g of result.gates) {
+        log(`    ${g.passed ? '✓' : '✕'} ${g.name}: ${g.detail.split('\n')[0].slice(0, 110)}`);
+      }
+      if (result.accepted) {
+        record.diff = sandbox.unifiedDiff();
+        if (apply && gen.testFile) {
+          const dest = path.join(config.projectRoot, gen.testFile.path);
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.writeFileSync(dest, gen.testFile.contents, 'utf8');
+          log(`  ✓ wrote ${gen.testFile.path}`);
+        }
+      }
+      sandbox.destroy(config.projectRoot);
+      records.push(record);
+      continue;
+    }
 
     for (let attempt = 1; attempt <= config.gates.maxAttempts; attempt++) {
       record.attempts = attempt;
@@ -254,78 +288,16 @@ program
     baseline.notes.forEach((n) => log(`  · ${n}`));
     log('');
 
-    const records: RunRecord[] = [];
-
-    for (const task of executable) {
-      log(`── ${task.id} [tier ${task.tier}] ─────────────`);
-      const firstPrompt =
-        task.kind === 'test-generation'
-          ? buildTestPrompt(config, task)
-          : buildSonarFixPrompt(config, task);
-
-      const messages: ProviderMessage[] = [{ role: 'user', content: firstPrompt }];
-      const record: RunRecord = { task, generation: null, result: null, attempts: 0, diff: '' };
-
-      for (let attempt = 1; attempt <= config.gates.maxAttempts; attempt++) {
-        record.attempts = attempt;
-        log(`  attempt ${attempt}/${config.gates.maxAttempts} — generating…`);
-
-        let raw: string;
-        try {
-          raw = await provider.complete({
-            system: SYSTEM_PROMPT,
-            messages,
-            maxTokens: 8000,
-            temperature: attempt === 1 ? 0.1 : 0.3, // nudge off a stuck answer on retry
-          });
-        } catch (err) {
-          record.error = `Provider error: ${(err as Error).message}`;
-          log(`  ✕ ${record.error}`);
-          break;
-        }
-
-        const gen = parseGeneration(task.id, raw);
-        record.generation = gen;
-
-        const { result, sandbox } = await verify(config, task, gen, attempt, coverage, baseline);
-        record.result = result;
-
-        for (const g of result.gates) {
-          log(`    ${g.passed ? '✓' : '✕'} ${g.name}: ${g.detail.split('\n')[0].slice(0, 110)}`);
-        }
-
-        if (result.accepted) {
-          record.diff = sandbox.unifiedDiff();
-          if (o.apply) {
-            if (gen.testFile) {
-              const dest = path.join(config.projectRoot, gen.testFile.path);
-              fs.mkdirSync(path.dirname(dest), { recursive: true });
-              fs.writeFileSync(dest, gen.testFile.contents, 'utf8');
-              log(`  ✓ wrote ${gen.testFile.path}`);
-            }
-            for (const e of gen.edits) {
-              const dest = path.join(config.projectRoot, e.path);
-              const src = fs.readFileSync(dest, 'utf8');
-              fs.writeFileSync(dest, src.replace(e.search, e.replace), 'utf8');
-              log(`  ✓ patched ${e.path}`);
-            }
-          }
-          sandbox.destroy(config.projectRoot);
-          break;
-        }
-
-        sandbox.destroy(config.projectRoot);
-        if (attempt === config.gates.maxAttempts) {
-          log(`  ✕ giving up after ${attempt} attempts — nothing written`);
-          break;
-        }
-        messages.push({ role: 'assistant', content: raw });
-        messages.push({ role: 'user', content: buildRetryPrompt(result.feedback ?? 'Unknown failure.') });
-      }
-
-      records.push(record);
-      log('');
-    }
+    // One shared loop for `run` and `feature` — it also carries the built-in
+    // generator short-circuit, which a second copy here silently missed.
+    const records: RunRecord[] = await runTasks(
+      config,
+      provider,
+      executable,
+      coverage,
+      baseline,
+      o.apply
+    );
 
     const html = renderReport(config, records, advisory, {
       provider: provider.name,

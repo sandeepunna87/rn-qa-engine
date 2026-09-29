@@ -100,6 +100,15 @@ export function createProvider(config: EngineConfig): LlmProvider {
   const p = config.provider;
   const key = p.apiKeyEnv ? process.env[p.apiKeyEnv] ?? '' : '';
   switch (p.kind) {
+    case 'builtin':
+      // Never called — runTasks short-circuits to the synthesiser. Present so
+      // that provider.name still reads correctly in logs and the report.
+      return {
+        name: 'builtin (no model)',
+        async complete() {
+          throw new Error('builtin provider is synthesised, not prompted');
+        },
+      };
     case 'ollama':
       return new OllamaProvider(p.model, p.baseUrl ?? 'http://127.0.0.1:11434');
     case 'openai-compatible':
