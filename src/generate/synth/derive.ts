@@ -150,6 +150,8 @@ function guardNonData(
   if (builtin) return { kind: 'builtin', values: builtin() };
   if (OPAQUE_BUILTINS.has(symbolName) || OPAQUE_BUILTINS.has(typeText)) return { kind: 'none' };
 
+  if (type.isTuple()) return { kind: 'data' };
+
   if (type.isObject() && !type.isArray()) {
     const props = type.getProperties();
     // Zero properties almost always means the type failed to resolve, not that
@@ -241,6 +243,23 @@ export function deriveCandidates(
     return wrap([`${name}-1`, '', '   ', ...ctx.strings.slice(0, 3)]);
   }
 
+  // --- tuples: fixed length, one value per position ------------------------
+  // A tuple such as [input: number, score: number] is structurally an object
+  // to ts-morph, so without this it fell through to the object walker — which
+  // emitted its inherited Symbol.unscopables as a property literally named
+  // "__@unscopables@85".
+  if (type.isTuple()) {
+    const elems = type.getTupleElements();
+    const built: unknown[] = [];
+    for (let i = 0; i < elems.length; i++) {
+      const cands = deriveCandidates(elems[i], `${name}[${i}]`, ctx, depth + 1);
+      const first = cands.find((c) => c.value !== undefined) ?? cands[0];
+      if (!first) return [];
+      built.push(first.value);
+    }
+    return [{ value: built, label: `${name}=[${built.length}]` }];
+  }
+
   // --- arrays: empty and non-empty are almost always distinct branches ------
   if (type.isArray()) {
     const elem = type.getArrayElementType();
@@ -276,6 +295,9 @@ export function deriveCandidates(
       }
       // Methods are behaviour, not data. Including them is what broke Date.
       if (propType.getCallSignatures().length > 0) continue;
+      // Symbol-keyed members surface as "__@unscopables@85" and are not
+      // writable as an object-literal key.
+      if (prop.getName().startsWith('__@')) continue;
 
       const optional = prop.isOptional?.() ?? false;
       const cands = deriveCandidates(propType, prop.getName(), ctx, depth + 1);
@@ -327,6 +349,7 @@ export function objectVariants(
       continue;
     }
     if (propType.getCallSignatures().length > 0) continue; // methods are not data
+    if (prop.getName().startsWith('__@')) continue; // symbol-keyed, not a literal key
     const cands = deriveCandidates(propType, prop.getName(), ctx, 1);
     if (cands.length === 0) continue;
     candidatesByProp.set(prop.getName(), cands);
