@@ -119,7 +119,10 @@ export async function verify(
     // is SYMLINKED into the worktree, and a .gitignore entry of "node_modules/"
     // does not match a symlink — so git reports it as an untracked change and
     // the scope guard rejects every generation on any real repo.
-    const INFRA = /^(node_modules|\.rnqa|\.stryker-tmp|coverage|dist|rnqa-report\.html|rnqa-feature\.html|stryker\.rnqa\.json)($|\/)/;
+    // Matches at ANY depth — a monorepo's `server/node_modules` is as much
+    // sandbox infrastructure as the root one.
+    const INFRA =
+      /(^|\/)(node_modules|\.rnqa|\.stryker-tmp|coverage|dist|rnqa-report\.html|rnqa-feature\.html|stryker\.rnqa\.json)($|\/)/;
     const changed = sandbox.changedFiles();
     const outOfScope = changed.filter((f) => !allowed.has(f) && !INFRA.test(f));
     const passed = outOfScope.length === 0;
