@@ -23,6 +23,30 @@ export interface Candidate {
 }
 
 const MAX_CANDIDATES_PER_PARAM = 8;
+
+/**
+ * Built-ins that need constructing, not walking. Two fixed dates rather than
+ * `new Date()` — a generated test whose expectation depends on when it ran is
+ * a flaky test, and characterization tests are meant to be reproducible.
+ */
+const BUILTIN_VALUES: Record<string, () => unknown[]> = {
+  Date: () => [new Date('2026-04-01T00:00:00.000Z'), new Date('2020-01-15T12:30:00.000Z')],
+};
+
+/** Built-ins with no sensible literal form — better no fixture than a wrong one. */
+const OPAQUE_BUILTINS = new Set([
+  'RegExp',
+  'Map',
+  'Set',
+  'WeakMap',
+  'WeakSet',
+  'Promise',
+  'Error',
+  'Function',
+  'Symbol',
+  'ArrayBuffer',
+  'Buffer',
+]);
 const MAX_OBJECT_DEPTH = 3;
 
 function lit(value: unknown): string {
@@ -180,6 +204,21 @@ export function deriveCandidates(
     ];
   }
 
+  // --- functions and callbacks: nothing honest to synthesise ----------------
+  if (type.getCallSignatures().length > 0 || type.getConstructSignatures().length > 0) {
+    return [];
+  }
+
+  // --- built-ins and class instances: NEVER walk their properties -----------
+  // A `Date` parameter got expanded into an object literal assembled from
+  // Date's own methods — getTime, toLocaleString, each becoming {} — producing
+  // twelve type errors and no usable fixture. A class instance is not a bag of
+  // fields; it has to be constructed, or left alone.
+  const symbolName = type.getSymbol()?.getName() ?? type.getAliasSymbol()?.getName() ?? '';
+  const builtin = BUILTIN_VALUES[symbolName];
+  if (builtin) return wrap(builtin());
+  if (OPAQUE_BUILTINS.has(symbolName)) return [];
+
   // --- objects: build one from its properties -------------------------------
   if (type.isObject() && depth < MAX_OBJECT_DEPTH) {
     const props = type.getProperties();
@@ -193,6 +232,9 @@ export function deriveCandidates(
       } catch {
         continue;
       }
+      // Methods are behaviour, not data. Including them is what broke Date.
+      if (propType.getCallSignatures().length > 0) continue;
+
       const optional = prop.isOptional?.() ?? false;
       const cands = deriveCandidates(propType, prop.getName(), ctx, depth + 1);
       const first = cands.find((c) => c.value !== undefined);

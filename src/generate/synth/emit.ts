@@ -10,7 +10,14 @@ function toLiteral(v: unknown, indent = 0): string {
   if (v === undefined) return 'undefined';
   if (v === null) return 'null';
   if (typeof v === 'string') return JSON.stringify(v);
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (typeof v === 'number') {
+    if (Number.isNaN(v)) return 'NaN';
+    if (v === Infinity) return 'Infinity';
+    if (v === -Infinity) return '-Infinity';
+    return String(v);
+  }
+  if (typeof v === 'boolean') return String(v);
+  if (v instanceof Date) return `new Date(${JSON.stringify(v.toISOString())})`;
 
   if (Array.isArray(v)) {
     if (v.length === 0) return '[]';
