@@ -127,6 +127,53 @@ function boundaryValues(constants: number[], cap: number): number[] {
     : [firstPositive, ...kept.filter((n) => n !== firstPositive)];
 }
 
+/**
+ * Is this type data we can build a literal for, or behaviour we must not?
+ *
+ * Shared by deriveCandidates AND objectVariants. They each walked object
+ * properties with their own copy of the logic, so a guard added to one left
+ * the other emitting {} for a Date — the same class of duplicate-logic bug
+ * that hid the built-in generator's short-circuit in the CLI.
+ */
+function guardNonData(
+  type: Type
+): { kind: 'data' } | { kind: 'none' } | { kind: 'builtin'; values: unknown[] } {
+  if (type.getCallSignatures().length > 0 || type.getConstructSignatures().length > 0) {
+    return { kind: 'none' };
+  }
+
+  // Match on the symbol AND on the printed type: a parameter written
+  // `now = new Date()` has its type inferred, and the symbol lookup misses it.
+  const symbolName = type.getSymbol()?.getName() ?? type.getAliasSymbol()?.getName() ?? '';
+  const typeText = type.getText().replace(/<.*$/, '').trim();
+  const builtin = BUILTIN_VALUES[symbolName] ?? BUILTIN_VALUES[typeText];
+  if (builtin) return { kind: 'builtin', values: builtin() };
+  if (OPAQUE_BUILTINS.has(symbolName) || OPAQUE_BUILTINS.has(typeText)) return { kind: 'none' };
+
+  if (type.isObject() && !type.isArray()) {
+    const props = type.getProperties();
+    // Zero properties almost always means the type failed to resolve, not that
+    // it is genuinely empty. Emitting {} for it produces an argument the
+    // compiler rejects.
+    if (props.length === 0 && typeText !== '{}' && typeText !== 'object') {
+      return { kind: 'none' };
+    }
+    // Every property a method: behaviour, not data.
+    if (props.length > 0) {
+      const allMethods = props.every((p) => {
+        try {
+          return p.getValueDeclaration()?.getType().getCallSignatures().length ?? 0 > 0;
+        } catch {
+          return false;
+        }
+      });
+      if (allMethods) return { kind: 'none' };
+    }
+  }
+
+  return { kind: 'data' };
+}
+
 export interface DeriveContext {
   sf: SourceFile;
   /** Node used to resolve property types. */
@@ -204,24 +251,16 @@ export function deriveCandidates(
     ];
   }
 
-  // --- functions and callbacks: nothing honest to synthesise ----------------
-  if (type.getCallSignatures().length > 0 || type.getConstructSignatures().length > 0) {
-    return [];
-  }
+  // --- functions, built-ins and class instances -----------------------------
+  const guard = guardNonData(type);
+  if (guard.kind === 'none') return [];
+  if (guard.kind === 'builtin') return wrap(guard.values);
 
   // --- built-ins and class instances: NEVER walk their properties -----------
   // A `Date` parameter got expanded into an object literal assembled from
   // Date's own methods — getTime, toLocaleString, each becoming {} — producing
   // twelve type errors and no usable fixture. A class instance is not a bag of
   // fields; it has to be constructed, or left alone.
-  // Match on the symbol AND on the printed type: a parameter written
-  // `now = new Date()` has its type inferred, and the symbol lookup misses it.
-  const symbolName = type.getSymbol()?.getName() ?? type.getAliasSymbol()?.getName() ?? '';
-  const typeText = type.getText().replace(/<.*$/, '').trim();
-  const builtin = BUILTIN_VALUES[symbolName] ?? BUILTIN_VALUES[typeText];
-  if (builtin) return wrap(builtin());
-  if (OPAQUE_BUILTINS.has(symbolName) || OPAQUE_BUILTINS.has(typeText)) return [];
-
   // --- objects: build one from its properties -------------------------------
   if (type.isObject() && depth < MAX_OBJECT_DEPTH) {
     const props = type.getProperties();
@@ -271,6 +310,8 @@ export function objectVariants(
   candidatesByProp: Map<string, Candidate[]>;
 } | null {
   if (!type.isObject() || type.isArray()) return null;
+  // Same guard as deriveCandidates — a Date is not a bag of fields.
+  if (guardNonData(type).kind !== 'data') return null;
   const props = type.getProperties();
   if (props.length === 0) return null;
 
@@ -285,6 +326,7 @@ export function objectVariants(
     } catch {
       continue;
     }
+    if (propType.getCallSignatures().length > 0) continue; // methods are not data
     const cands = deriveCandidates(propType, prop.getName(), ctx, 1);
     if (cands.length === 0) continue;
     candidatesByProp.set(prop.getName(), cands);
