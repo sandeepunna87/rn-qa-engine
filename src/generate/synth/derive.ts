@@ -214,10 +214,13 @@ export function deriveCandidates(
   // Date's own methods — getTime, toLocaleString, each becoming {} — producing
   // twelve type errors and no usable fixture. A class instance is not a bag of
   // fields; it has to be constructed, or left alone.
+  // Match on the symbol AND on the printed type: a parameter written
+  // `now = new Date()` has its type inferred, and the symbol lookup misses it.
   const symbolName = type.getSymbol()?.getName() ?? type.getAliasSymbol()?.getName() ?? '';
-  const builtin = BUILTIN_VALUES[symbolName];
+  const typeText = type.getText().replace(/<.*$/, '').trim();
+  const builtin = BUILTIN_VALUES[symbolName] ?? BUILTIN_VALUES[typeText];
   if (builtin) return wrap(builtin());
-  if (OPAQUE_BUILTINS.has(symbolName)) return [];
+  if (OPAQUE_BUILTINS.has(symbolName) || OPAQUE_BUILTINS.has(typeText)) return [];
 
   // --- objects: build one from its properties -------------------------------
   if (type.isObject() && depth < MAX_OBJECT_DEPTH) {
@@ -241,6 +244,12 @@ export function deriveCandidates(
       if (first) built[prop.getName()] = first.value;
       else if (!optional) built[prop.getName()] = null;
     }
+
+    // A type whose every property is a method is behaviour, not data — a class
+    // instance the naming check did not recognise. Emitting {} for it produces
+    // an argument the compiler rejects, so produce nothing instead.
+    if (Object.keys(built).length === 0) return [];
+
     return [{ value: built, label: `${name}={…}` }];
   }
 
