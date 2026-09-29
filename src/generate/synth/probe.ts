@@ -4,6 +4,7 @@ import * as path from 'path';
 import { EngineConfig } from '../../types';
 import { Sandbox } from '../../verify/sandbox';
 import { Fixture } from './fixtures';
+import { toJsLiteral } from './literal';
 
 /**
  * Runs the real code with the derived inputs and records what came back.
@@ -35,9 +36,16 @@ function probeSource(targetImportPath: string, fixtures: Fixture[], outPath: str
 import * as fs from 'fs';
 import * as targetModule from '${targetImportPath}';
 
-const FIXTURES: { id: string; fnName: string; args: unknown[] }[] = ${JSON.stringify(
-  fixtures.map((f) => ({ id: f.id, fnName: f.fnName, args: f.args }))
-)};
+const FIXTURES: { id: string; fnName: string; args: unknown[] }[] = [
+${fixtures
+  .map((f) => {
+    const args = f.args.map((a) => toJsLiteral(a));
+    if (args.some((a) => a === null)) return null;
+    return `  { id: ${JSON.stringify(f.id)}, fnName: ${JSON.stringify(f.fnName)}, args: [${args.join(', ')}] },`;
+  })
+  .filter((l): l is string => l !== null)
+  .join('\n')}
+];
 
 /**
  * Serialise to a JS SOURCE LITERAL, not to JSON.

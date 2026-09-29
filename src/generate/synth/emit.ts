@@ -1,42 +1,7 @@
 import * as path from 'path';
 import { Fixture } from './fixtures';
+import { toJsLiteral } from './literal';
 import { ProbeResult } from './probe';
-
-/** JS literal, not JSON — undefined has to survive. */
-function toLiteral(v: unknown, indent = 0): string {
-  const pad = '  '.repeat(indent);
-  const padIn = '  '.repeat(indent + 1);
-
-  if (v === undefined) return 'undefined';
-  if (v === null) return 'null';
-  if (typeof v === 'string') return JSON.stringify(v);
-  if (typeof v === 'number') {
-    if (Number.isNaN(v)) return 'NaN';
-    if (v === Infinity) return 'Infinity';
-    if (v === -Infinity) return '-Infinity';
-    return String(v);
-  }
-  if (typeof v === 'boolean') return String(v);
-  if (v instanceof Date) return `new Date(${JSON.stringify(v.toISOString())})`;
-
-  if (Array.isArray(v)) {
-    if (v.length === 0) return '[]';
-    const items = v.map((x) => `${padIn}${toLiteral(x, indent + 1)}`);
-    return `[\n${items.join(',\n')}\n${pad}]`;
-  }
-
-  if (typeof v === 'object') {
-    const entries = Object.entries(v as Record<string, unknown>);
-    if (entries.length === 0) return '{}';
-    const items = entries.map(([k, val]) => {
-      const key = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k) ? k : JSON.stringify(k);
-      return `${padIn}${key}: ${toLiteral(val, indent + 1)}`;
-    });
-    return `{\n${items.join(',\n')}\n${pad}}`;
-  }
-
-  return 'undefined';
-}
 
 function importPath(testAbsPath: string, targetAbsPath: string): string {
   let rel = path.relative(path.dirname(testAbsPath), targetAbsPath).replace(/\\/g, '/');
@@ -85,7 +50,14 @@ export function emitTestFile(input: EmitInput): EmitOutput {
         continue;
       }
 
-      const argsLiteral = f.args.map((a) => toLiteral(a, 3)).join(', ');
+      // The SAME writer the probe used, so the call in the test is byte-for-byte
+      // the call that was actually measured.
+      const argLits = f.args.map((a) => toJsLiteral(a));
+      if (argLits.some((a) => a === null)) {
+        skipped++;
+        continue;
+      }
+      const argsLiteral = argLits.join(', ');
       const dedupeKey = `${argsLiteral}::${r.kind}::${r.literal ?? r.message ?? ''}`;
       if (seen.has(dedupeKey)) {
         skipped++;
