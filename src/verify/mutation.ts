@@ -46,6 +46,17 @@ export async function mutationScore(
     // contain symlinked "Versions/Current" directories, and dies with EISDIR —
     // leaving gigabytes behind and reporting the gate as SKIPPED.
     ignorePatterns: [...DEFAULT_STRYKER_IGNORES, ...config.gates.strykerIgnorePatterns],
+    // Mutate the files where they are instead of copying the project into a
+    // second sandbox. We are ALREADY inside a disposable git worktree, so the
+    // copy buys nothing and breaks real configs: a jest moduleNameMapper that
+    // points at '<rootDir>/node_modules/...' resolves to nothing inside
+    // Stryker's copy, because node_modules is excluded from it — the dry run
+    // then fails with "Something went wrong in the initial test run" and the
+    // gate silently reports SKIPPED.
+    //
+    // It is also much faster, and it is what left 2.4GB of abandoned sandbox
+    // behind when the copy hit ios/Pods.
+    inPlace: true,
     cleanTempDir: true,
     // Static mutants force a full-suite re-run each. Measured on a real RN
     // repo: 260 of 322 mutants on one module were static and accounted for
