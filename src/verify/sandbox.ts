@@ -11,6 +11,31 @@ import * as path from 'path';
  * Nothing the model produces can touch the developer's checkout until a human
  * merges the PR.
  */
+/** Every node_modules in the project, root first, nested ones after. */
+function findNodeModules(projectRoot: string, maxDepth = 3): string[] {
+  const out: string[] = [];
+  const walk = (dir: string, depth: number): void => {
+    if (depth > maxDepth) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      if (e.name === 'node_modules') {
+        out.push(path.relative(projectRoot, path.join(dir, e.name)));
+        continue; // never descend INTO node_modules
+      }
+      if (e.name.startsWith('.') || e.name === 'ios' || e.name === 'android') continue;
+      walk(path.join(dir, e.name), depth + 1);
+    }
+  };
+  walk(projectRoot, 0);
+  return out.sort((a, b) => a.split(path.sep).length - b.split(path.sep).length);
+}
+
 export class Sandbox {
   readonly root: string;
   private isWorktree = false;
@@ -45,13 +70,22 @@ export class Sandbox {
 
     // node_modules is symlinked, never copied — copying it is the single slowest
     // thing a tool like this can do.
-    const nm = path.join(dest, 'node_modules');
-    const srcNm = path.join(projectRoot, 'node_modules');
-    if (!fs.existsSync(nm) && fs.existsSync(srcNm)) {
+    //
+    // ALL of them, not just the root. A monorepo or an embedded sub-project
+    // (a `server/` folder with its own dependencies) has nested installs, and
+    // reproducing only the root one makes `tsc` report the sub-project's
+    // imports as unresolved. The differential gate then correctly calls those
+    // errors "new" — they are absent from the baseline taken in the real repo —
+    // and every generation is rejected for breakage the sandbox itself caused.
+    for (const rel of findNodeModules(projectRoot)) {
+      const link = path.join(dest, rel);
+      const realDir = path.join(projectRoot, rel);
+      if (fs.existsSync(link) || !fs.existsSync(realDir)) continue;
       try {
-        fs.symlinkSync(srcNm, nm, 'junction');
+        fs.mkdirSync(path.dirname(link), { recursive: true });
+        fs.symlinkSync(realDir, link, 'junction');
       } catch {
-        /* Windows without privileges — jest will resolve up the tree anyway. */
+        /* Windows without privileges — resolution walks up the tree anyway. */
       }
     }
 
