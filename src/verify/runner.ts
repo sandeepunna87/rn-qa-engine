@@ -245,19 +245,22 @@ export async function verify(
     // actually available, and reaching 100% always passes.
     const available = 100 - beforePct;
     const required = Math.min(config.gates.minBranchCoverageDelta, available);
-    const passed = afterPct >= 100 || deltaB >= required - 1e-9;
+    const wellCovered = beforePct >= config.gates.wellCoveredAt;
+    const passed = wellCovered || afterPct >= 100 || deltaB >= required - 1e-9;
 
     gates.push({
       name: 'coverage-delta',
       passed,
       value: deltaB,
-      detail:
-        `Branch coverage ${beforePct.toFixed(0)}% → ${afterPct.toFixed(0)}% ` +
-        `(Δ ${deltaB.toFixed(0)}pp, need ≥${required.toFixed(0)}pp` +
-        (required < config.gates.minBranchCoverageDelta
-          ? ` — capped from ${config.gates.minBranchCoverageDelta}pp, only ${available.toFixed(0)}pp were available)`
-          : ')') +
-        '.',
+      detail: wellCovered
+        ? `Branch coverage ${beforePct.toFixed(0)}% → ${afterPct.toFixed(0)}% (Δ ${deltaB.toFixed(0)}pp). ` +
+          `Already ≥${config.gates.wellCoveredAt}% — informational only; mutation-score decides.`
+        : `Branch coverage ${beforePct.toFixed(0)}% → ${afterPct.toFixed(0)}% ` +
+          `(Δ ${deltaB.toFixed(0)}pp, need ≥${required.toFixed(0)}pp` +
+          (required < config.gates.minBranchCoverageDelta
+            ? ` — capped from ${config.gates.minBranchCoverageDelta}pp, only ${available.toFixed(0)}pp were available)`
+            : ')') +
+          '.',
     });
     if (!passed) {
       const stillUncovered = coverageAfter?.uncoveredBranchLines.join(', ') ?? 'unknown';

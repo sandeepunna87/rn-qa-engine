@@ -87,6 +87,7 @@ export const DEFAULT_CONFIG: EngineConfig = {
     maxAttempts: 3,
     enforceScope: true,
     regressionScope: 'related',
+    wellCoveredAt: 85,
     strykerConcurrency: 2,
     strykerIgnorePatterns: [],
     ignoreStaticMutants: true,

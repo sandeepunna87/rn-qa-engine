@@ -183,6 +183,16 @@ export interface EngineConfig {
      * realistic cases at a fraction of the cost on a large repo.
      */
     regressionScope: 'full' | 'related';
+    /**
+     * Branch coverage at or above which the coverage-delta gate stops deciding.
+     *
+     * On a file already near the top there is almost no reach left to add, so
+     * demanding a coverage gain rejects good work for having nowhere to go.
+     * What matters there is assertion strength, which is exactly what the
+     * mutation gate measures — so above this mark coverage-delta becomes
+     * informational and mutation-score carries the decision.
+     */
+    wellCoveredAt: number;
     /** Stryker parallelism. Each worker is a full jest process — keep low on 16GB. */
     strykerConcurrency: number;
     /**
